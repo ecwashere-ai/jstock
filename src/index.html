@@ -93,6 +93,37 @@
           </div>
         </fieldset>
 
+        <!-- 総合テクニカルスコアフィルター -->
+        <fieldset class="mb-6">
+          <legend class="text-sm font-medium text-slate-300 mb-3">総合テクニカルスコア</legend>
+          <div class="space-y-2 text-sm">
+            <label class="flex items-center gap-2.5 cursor-pointer text-slate-400 hover:text-slate-200 transition">
+              <input type="radio" name="score" value="all" checked class="accent-[#c9a962]">
+              指定なし
+            </label>
+            <label class="flex items-center gap-2.5 cursor-pointer text-slate-400 hover:text-slate-200 transition">
+              <input type="radio" name="score" value="bull" class="accent-[#c9a962]">
+              強気シグナル優勢
+            </label>
+            <label class="flex items-center gap-2.5 cursor-pointer text-slate-400 hover:text-slate-200 transition">
+              <input type="radio" name="score" value="bear" class="accent-[#c9a962]">
+              弱気シグナル優勢
+            </label>
+          </div>
+          <p class="text-xs text-slate-500 leading-relaxed mt-2">RSI・MACD・移動平均トレンド・ボリンジャーバンド・出来高の5指標を合成した客観的な数値です。</p>
+        </fieldset>
+
+        <!-- 統計的上昇確率フィルター -->
+        <fieldset class="mb-6">
+          <legend class="text-sm font-medium text-slate-300 mb-3">統計的上昇確率（参考）</legend>
+          <div class="flex items-center gap-2 text-sm">
+            <input id="prob-above" type="number" step="5" min="0" max="100" placeholder="60"
+                   class="w-20 bg-navy-900 border border-navy-700 rounded-md px-2 py-1.5 font-mono text-sm text-slate-200 focus:outline-none focus:border-accent/60">
+            <span class="text-slate-400">% 以上</span>
+          </div>
+          <p class="text-xs text-slate-500 leading-relaxed mt-2">同一銘柄の過去約2年間で、現在と類似のテクニカル状態から5営業日後に株価が上昇していた頻度です。将来を保証するものではありません。</p>
+        </fieldset>
+
         <button id="reset-btn"
                 class="w-full py-2 rounded-md border border-navy-700 text-sm text-slate-400 hover:text-accent hover:border-accent/50 transition">
           条件をリセット
@@ -125,6 +156,8 @@
                 <th class="px-4 py-3 font-medium text-right">前日比</th>
                 <th class="px-4 py-3 font-medium text-right">RSI</th>
                 <th class="px-4 py-3 font-medium text-right">25日乖離率</th>
+                <th class="px-4 py-3 font-medium text-center">総合テクニカルスコア</th>
+                <th class="px-4 py-3 font-medium text-right">統計的上昇確率</th>
                 <th class="px-4 py-3 font-medium text-center">チャート</th>
               </tr>
             </thead>
@@ -137,7 +170,11 @@
 
       <p class="text-xs text-slate-600 mt-4 leading-relaxed">
         ※ 本ページはテクニカル指標の数値を客観的に表示するものであり、特定の金融商品の売買を推奨するものではありません。
-        投資に関する最終判断はご自身の責任で行ってください。データは Yahoo Finance 由来で遅延を含みます。
+        「総合テクニカルスコア」は RSI・MACD・移動平均トレンド・ボリンジャーバンド・出来高の5指標を機械的に合成した数値、
+        「統計的上昇確率」は同一銘柄の過去約2年間において現在と類似のテクニカル状態が発生した際に5営業日後の株価が
+        上昇していた頻度を集計した参考値であり、将来の値動きを予測・保証するものではありません（サンプル数 n が
+        少ない場合は参考にできません）。投資に関する最終判断はご自身の責任で行ってください。データは Yahoo Finance
+        由来で遅延を含みます。
       </p>
     </main>
   </div>
@@ -159,6 +196,24 @@
   const filterStatus = document.getElementById('filter-status');
   const devBelow     = document.getElementById('dev-below');
   const devAbove     = document.getElementById('dev-above');
+  const probAbove    = document.getElementById('prob-above');
+
+  const SCORE_LABELS = {
+    strong_bull: '強気シグナル優勢',
+    mild_bull:   'やや強気',
+    neutral:     '中立',
+    mild_bear:   'やや弱気',
+    strong_bear: '弱気シグナル優勢',
+  };
+
+  function bucketFromScore(score) {
+    if (score === null || score === undefined) return null;
+    if (score >= 3) return 'strong_bull';
+    if (score >= 1) return 'mild_bull';
+    if (score <= -3) return 'strong_bear';
+    if (score <= -1) return 'mild_bear';
+    return 'neutral';
+  }
 
   const fmtNumber = (v, digits = 2) =>
     (v === null || v === undefined) ? '—'
@@ -169,13 +224,15 @@
 
   function getFilters() {
     const rsiMode = document.querySelector('input[name="rsi"]:checked').value;
+    const scoreMode = document.querySelector('input[name="score"]:checked').value;
     const below = devBelow.value === '' ? null : parseFloat(devBelow.value);
     const above = devAbove.value === '' ? null : parseFloat(devAbove.value);
-    return { rsiMode, below, above };
+    const probMin = probAbove.value === '' ? null : parseFloat(probAbove.value);
+    return { rsiMode, scoreMode, below, above, probMin };
   }
 
   function applyFilters() {
-    const { rsiMode, below, above } = getFilters();
+    const { rsiMode, scoreMode, below, above, probMin } = getFilters();
 
     const filtered = allStocks.filter((s) => {
       if (rsiMode === 'low'  && !(s.rsi !== null && s.rsi <= 30)) return false;
@@ -187,20 +244,32 @@
         const hitAbove = above !== null && s.ma25_dev_pct >= above;
         if (!hitBelow && !hitAbove) return false;
       }
+
+      if (scoreMode !== 'all') {
+        const bucket = bucketFromScore(s.composite_score);
+        if (scoreMode === 'bull' && !(bucket === 'strong_bull' || bucket === 'mild_bull')) return false;
+        if (scoreMode === 'bear' && !(bucket === 'strong_bear' || bucket === 'mild_bear')) return false;
+      }
+
+      if (probMin !== null && !(s.up_probability !== null && s.up_probability >= probMin)) return false;
+
       return true;
     });
 
     renderTable(filtered);
-    renderStatus(rsiMode, below, above, filtered.length);
+    renderStatus(rsiMode, scoreMode, below, above, probMin, filtered.length);
   }
 
-  function renderStatus(rsiMode, below, above, count) {
+  function renderStatus(rsiMode, scoreMode, below, above, probMin, count) {
     matchCount.textContent = count;
     const parts = [];
     if (rsiMode === 'low')  parts.push('RSI 30以下');
     if (rsiMode === 'high') parts.push('RSI 70以上');
     if (below !== null) parts.push(`乖離率 ${below}% 以下`);
     if (above !== null) parts.push(`乖離率 ${above}% 以上`);
+    if (scoreMode === 'bull') parts.push('スコア: 強気優勢');
+    if (scoreMode === 'bear') parts.push('スコア: 弱気優勢');
+    if (probMin !== null) parts.push(`上昇確率 ${probMin}% 以上`);
     filterStatus.textContent = parts.length ? '適用中: ' + parts.join(' / ') : 'フィルターなし';
   }
 
@@ -219,6 +288,26 @@
         : (s.rsi <= 30 || s.rsi >= 70) ? 'text-accent font-semibold'
         : 'text-slate-300';
 
+      const bucket = bucketFromScore(s.composite_score);
+      const scoreBadgeClass = {
+        strong_bull: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+        mild_bull:   'bg-emerald-500/10 text-emerald-400/80 border-emerald-500/20',
+        neutral:     'bg-slate-500/10 text-slate-400 border-slate-500/20',
+        mild_bear:   'bg-red-500/10 text-red-400/80 border-red-500/20',
+        strong_bear: 'bg-red-500/15 text-red-400 border-red-500/30',
+      }[bucket] || 'bg-slate-500/10 text-slate-500 border-slate-500/20';
+      const scoreLabel = bucket === null ? 'データ不足' : SCORE_LABELS[bucket];
+      const scoreNumText = s.composite_score === null ? '' : ` (${s.composite_score > 0 ? '+' : ''}${s.composite_score})`;
+
+      const prob = s.up_probability;
+      const probClass = prob === null ? 'text-slate-500'
+        : prob >= 60 ? 'text-emerald-400'
+        : prob <= 40 ? 'text-red-400'
+        : 'text-slate-300';
+      const probText = prob === null
+        ? `— <span class="text-slate-600">(n=${s.up_probability_samples ?? 0})</span>`
+        : `${fmtNumber(prob, 1)}% <span class="text-slate-600">(n=${s.up_probability_samples})</span>`;
+
       const tvSymbol = encodeURIComponent('TSE:' + s.code);
 
       return `
@@ -230,6 +319,10 @@
           <td class="px-4 py-3 text-right font-mono ${chgClass}">${chgText}</td>
           <td class="px-4 py-3 text-right font-mono ${rsiClass}">${s.rsi === null ? '—' : fmtNumber(s.rsi, 1)}</td>
           <td class="px-4 py-3 text-right font-mono ${s.ma25_dev_pct !== null && s.ma25_dev_pct < 0 ? 'text-red-400/90' : 'text-slate-300'}">${s.ma25_dev_pct === null ? '—' : `${s.ma25_dev_pct > 0 ? '+' : ''}${fmtNumber(s.ma25_dev_pct)}%`}</td>
+          <td class="px-4 py-3 text-center">
+            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border whitespace-nowrap ${scoreBadgeClass}">${scoreLabel}${scoreNumText}</span>
+          </td>
+          <td class="px-4 py-3 text-right font-mono text-xs ${probClass}">${probText}</td>
           <td class="px-4 py-3 text-center">
             <a href="https://www.tradingview.com/chart/?symbol=${tvSymbol}" target="_blank" rel="noopener noreferrer"
                class="inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-xs border border-navy-700 text-slate-400 hover:text-accent hover:border-accent/50 transition">
@@ -245,8 +338,10 @@
 
   function resetFilters() {
     document.querySelector('input[name="rsi"][value="all"]').checked = true;
+    document.querySelector('input[name="score"][value="all"]').checked = true;
     devBelow.value = '';
     devAbove.value = '';
+    probAbove.value = '';
     applyFilters();
   }
 
@@ -266,8 +361,10 @@
   }
 
   document.querySelectorAll('input[name="rsi"]').forEach((el) => el.addEventListener('change', applyFilters));
+  document.querySelectorAll('input[name="score"]').forEach((el) => el.addEventListener('change', applyFilters));
   devBelow.addEventListener('input', applyFilters);
   devAbove.addEventListener('input', applyFilters);
+  probAbove.addEventListener('input', applyFilters);
   document.getElementById('reset-btn').addEventListener('click', resetFilters);
 
   loadData();
