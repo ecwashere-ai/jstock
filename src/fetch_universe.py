@@ -51,7 +51,7 @@ def fetch_prime_universe() -> list[dict]:
     df = pd.read_excel(io.BytesIO(resp.content))
     df.columns = [str(c).strip() for c in df.columns]
 
-    required_columns = {"コード", "銘柄名", "市場・商品区分"}
+    required_columns = {"コード", "銘柄名", "市場・商品区分", "33業種区分"}
     missing = required_columns - set(df.columns)
     if missing:
         raise ValueError(f"想定した列が見つかりません: {missing}（取得した列: {list(df.columns)}）")
@@ -64,9 +64,15 @@ def fetch_prime_universe() -> list[dict]:
     for _, row in prime_df.iterrows():
         code = str(row["コード"]).strip()
         name = str(row["銘柄名"]).strip()
+        sector = str(row["33業種区分"]).strip()
         if not code or not code[0].isdigit():
             continue
-        universe.append({"code": f"{code}.T", "name": name, "market": "東証プライム"})
+        universe.append({
+            "code": f"{code}.T",
+            "name": name,
+            "market": "東証プライム",
+            "sector": sector or "その他",
+        })
 
     return universe
 

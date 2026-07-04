@@ -2,7 +2,8 @@
 """日本株テクニカル指標スクリーニング用データ更新スクリプト。
 
 yfinance で過去約2年分の株価を取得し、RSI・MACD・移動平均トレンド・
-ボリンジャーバンド・出来高など複数のテクニカル指標を算出する。
+ボリンジャーバンド・出来高・ストキャスティクスなど複数のテクニカル指標を
+内部的に算出し、それらを合成した単一の総合スコアに集約する。
 さらに、それぞれの銘柄自身の過去データにおいて「現在と似たテクニカル状態」
 から一定日数後に株価が上昇していた割合（統計的上昇確率）を集計する。
 結果は data/stocks.json に保存する。GitHub Actions から毎営業日
@@ -34,54 +35,55 @@ UNIVERSE_PATH = Path(__file__).resolve().parent.parent / "data" / "universe_prim
 
 # ---------------------------------------------------------------------------
 # フォールバック銘柄リスト（data/universe_prime.json が無い/読み込めない場合に使用）
-# 銘柄を追加したい場合はこの配列に {"code": "XXXX.T", "name": "銘柄名", "market": "市場"}
+# 銘柄を追加したい場合はこの配列に
+# {"code": "XXXX.T", "name": "銘柄名", "market": "市場", "sector": "33業種区分"}
 # の形式で1行追加するだけでよい。
 # ---------------------------------------------------------------------------
 FALLBACK_STOCKS = [
-    {"code": "7203.T", "name": "トヨタ自動車",           "market": "東証プライム"},
-    {"code": "6758.T", "name": "ソニーグループ",         "market": "東証プライム"},
-    {"code": "8306.T", "name": "三菱UFJフィナンシャルG", "market": "東証プライム"},
-    {"code": "7974.T", "name": "任天堂",                 "market": "東証プライム"},
-    {"code": "6861.T", "name": "キーエンス",             "market": "東証プライム"},
-    {"code": "9984.T", "name": "ソフトバンクグループ",   "market": "東証プライム"},
-    {"code": "9983.T", "name": "ファーストリテイリング", "market": "東証プライム"},
-    {"code": "1605.T", "name": "INPEX",                  "market": "東証プライム"},
-    {"code": "8058.T", "name": "三菱商事",               "market": "東証プライム"},
-    {"code": "8267.T", "name": "イオン",                 "market": "東証プライム"},
-    {"code": "8035.T", "name": "東京エレクトロン",       "market": "東証プライム"},
-    {"code": "6501.T", "name": "日立製作所",             "market": "東証プライム"},
-    {"code": "4063.T", "name": "信越化学工業",           "market": "東証プライム"},
-    {"code": "9432.T", "name": "日本電信電話",           "market": "東証プライム"},
-    {"code": "8316.T", "name": "三井住友フィナンシャルG", "market": "東証プライム"},
-    {"code": "4502.T", "name": "武田薬品工業",           "market": "東証プライム"},
-    {"code": "6902.T", "name": "デンソー",               "market": "東証プライム"},
-    {"code": "6098.T", "name": "リクルートホールディングス", "market": "東証プライム"},
-    {"code": "9433.T", "name": "KDDI",                   "market": "東証プライム"},
-    {"code": "8001.T", "name": "伊藤忠商事",             "market": "東証プライム"},
-    {"code": "8031.T", "name": "三井物産",               "market": "東証プライム"},
-    {"code": "8766.T", "name": "東京海上ホールディングス", "market": "東証プライム"},
-    {"code": "8411.T", "name": "みずほフィナンシャルG",  "market": "東証プライム"},
-    {"code": "6954.T", "name": "ファナック",             "market": "東証プライム"},
-    {"code": "6367.T", "name": "ダイキン工業",           "market": "東証プライム"},
-    {"code": "6981.T", "name": "村田製作所",             "market": "東証プライム"},
-    {"code": "6857.T", "name": "アドバンテスト",         "market": "東証プライム"},
-    {"code": "6146.T", "name": "ディスコ",               "market": "東証プライム"},
-    {"code": "6503.T", "name": "三菱電機",               "market": "東証プライム"},
-    {"code": "6702.T", "name": "富士通",                 "market": "東証プライム"},
-    {"code": "7011.T", "name": "三菱重工業",             "market": "東証プライム"},
-    {"code": "7267.T", "name": "ホンダ",                 "market": "東証プライム"},
-    {"code": "7741.T", "name": "HOYA",                   "market": "東証プライム"},
-    {"code": "4568.T", "name": "第一三共",               "market": "東証プライム"},
-    {"code": "4519.T", "name": "中外製薬",               "market": "東証プライム"},
-    {"code": "4503.T", "name": "アステラス製薬",         "market": "東証プライム"},
-    {"code": "2914.T", "name": "日本たばこ産業",         "market": "東証プライム"},
-    {"code": "3382.T", "name": "セブン&アイ・ホールディングス", "market": "東証プライム"},
-    {"code": "4661.T", "name": "オリエンタルランド",     "market": "東証プライム"},
-    {"code": "5401.T", "name": "日本製鉄",               "market": "東証プライム"},
-    {"code": "9101.T", "name": "日本郵船",               "market": "東証プライム"},
-    {"code": "8591.T", "name": "オリックス",             "market": "東証プライム"},
-    {"code": "7751.T", "name": "キヤノン",               "market": "東証プライム"},
-    {"code": "6301.T", "name": "小松製作所",             "market": "東証プライム"},
+    {"code": "7203.T", "name": "トヨタ自動車",           "market": "東証プライム", "sector": "輸送用機器"},
+    {"code": "6758.T", "name": "ソニーグループ",         "market": "東証プライム", "sector": "電気機器"},
+    {"code": "8306.T", "name": "三菱UFJフィナンシャルG", "market": "東証プライム", "sector": "銀行業"},
+    {"code": "7974.T", "name": "任天堂",                 "market": "東証プライム", "sector": "その他製品"},
+    {"code": "6861.T", "name": "キーエンス",             "market": "東証プライム", "sector": "電気機器"},
+    {"code": "9984.T", "name": "ソフトバンクグループ",   "market": "東証プライム", "sector": "情報・通信業"},
+    {"code": "9983.T", "name": "ファーストリテイリング", "market": "東証プライム", "sector": "小売業"},
+    {"code": "1605.T", "name": "INPEX",                  "market": "東証プライム", "sector": "鉱業"},
+    {"code": "8058.T", "name": "三菱商事",               "market": "東証プライム", "sector": "卸売業"},
+    {"code": "8267.T", "name": "イオン",                 "market": "東証プライム", "sector": "小売業"},
+    {"code": "8035.T", "name": "東京エレクトロン",       "market": "東証プライム", "sector": "電気機器"},
+    {"code": "6501.T", "name": "日立製作所",             "market": "東証プライム", "sector": "電気機器"},
+    {"code": "4063.T", "name": "信越化学工業",           "market": "東証プライム", "sector": "化学"},
+    {"code": "9432.T", "name": "日本電信電話",           "market": "東証プライム", "sector": "情報・通信業"},
+    {"code": "8316.T", "name": "三井住友フィナンシャルG", "market": "東証プライム", "sector": "銀行業"},
+    {"code": "4502.T", "name": "武田薬品工業",           "market": "東証プライム", "sector": "医薬品"},
+    {"code": "6902.T", "name": "デンソー",               "market": "東証プライム", "sector": "輸送用機器"},
+    {"code": "6098.T", "name": "リクルートホールディングス", "market": "東証プライム", "sector": "サービス業"},
+    {"code": "9433.T", "name": "KDDI",                   "market": "東証プライム", "sector": "情報・通信業"},
+    {"code": "8001.T", "name": "伊藤忠商事",             "market": "東証プライム", "sector": "卸売業"},
+    {"code": "8031.T", "name": "三井物産",               "market": "東証プライム", "sector": "卸売業"},
+    {"code": "8766.T", "name": "東京海上ホールディングス", "market": "東証プライム", "sector": "保険業"},
+    {"code": "8411.T", "name": "みずほフィナンシャルG",  "market": "東証プライム", "sector": "銀行業"},
+    {"code": "6954.T", "name": "ファナック",             "market": "東証プライム", "sector": "電気機器"},
+    {"code": "6367.T", "name": "ダイキン工業",           "market": "東証プライム", "sector": "機械"},
+    {"code": "6981.T", "name": "村田製作所",             "market": "東証プライム", "sector": "電気機器"},
+    {"code": "6857.T", "name": "アドバンテスト",         "market": "東証プライム", "sector": "電気機器"},
+    {"code": "6146.T", "name": "ディスコ",               "market": "東証プライム", "sector": "機械"},
+    {"code": "6503.T", "name": "三菱電機",               "market": "東証プライム", "sector": "電気機器"},
+    {"code": "6702.T", "name": "富士通",                 "market": "東証プライム", "sector": "電気機器"},
+    {"code": "7011.T", "name": "三菱重工業",             "market": "東証プライム", "sector": "機械"},
+    {"code": "7267.T", "name": "ホンダ",                 "market": "東証プライム", "sector": "輸送用機器"},
+    {"code": "7741.T", "name": "HOYA",                   "market": "東証プライム", "sector": "精密機器"},
+    {"code": "4568.T", "name": "第一三共",               "market": "東証プライム", "sector": "医薬品"},
+    {"code": "4519.T", "name": "中外製薬",               "market": "東証プライム", "sector": "医薬品"},
+    {"code": "4503.T", "name": "アステラス製薬",         "market": "東証プライム", "sector": "医薬品"},
+    {"code": "2914.T", "name": "日本たばこ産業",         "market": "東証プライム", "sector": "食料品"},
+    {"code": "3382.T", "name": "セブン&アイ・ホールディングス", "market": "東証プライム", "sector": "小売業"},
+    {"code": "4661.T", "name": "オリエンタルランド",     "market": "東証プライム", "sector": "サービス業"},
+    {"code": "5401.T", "name": "日本製鉄",               "market": "東証プライム", "sector": "鉄鋼"},
+    {"code": "9101.T", "name": "日本郵船",               "market": "東証プライム", "sector": "海運業"},
+    {"code": "8591.T", "name": "オリックス",             "market": "東証プライム", "sector": "その他金融業"},
+    {"code": "7751.T", "name": "キヤノン",               "market": "東証プライム", "sector": "電気機器"},
+    {"code": "6301.T", "name": "小松製作所",             "market": "東証プライム", "sector": "機械"},
 ]
 
 # ---------------------------------------------------------------------------
@@ -97,6 +99,8 @@ BB_PERIOD = 20
 BB_NUM_STD = 2
 VOLUME_MA_PERIOD = 20
 VOLUME_SURGE_RATIO = 1.5
+STOCH_PERIOD = 14
+STOCH_SMOOTH = 3
 
 FETCH_PERIOD = "2y"        # バックテスト用に約2年分を取得
 FORWARD_DAYS = 5           # 何営業日後の値動きを見るか
@@ -110,7 +114,7 @@ CHUNK_DELAY_SEC = 2
 
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "stocks.json"
 
-# 総合スコア（-5〜+5）を5段階に分類する際のラベル（客観的なテクニカル用語のみ使用）
+# 総合スコア（-6〜+6）を5段階に分類する際のラベル（客観的なテクニカル用語のみ使用）
 SCORE_LABELS = {
     "strong_bull": "強気シグナル優勢",
     "mild_bull":   "やや強気",
@@ -154,6 +158,16 @@ def calc_bollinger_percent_b(close: pd.Series, period: int = BB_PERIOD, num_std:
     return percent_b.where(band_width != 0)
 
 
+def calc_stochastic_k(history: pd.DataFrame, period: int = STOCH_PERIOD, smooth: int = STOCH_SMOOTH) -> pd.Series:
+    """ストキャスティクス %K（Slow, 0〜100）の時系列を返す。"""
+    low_min = history["Low"].rolling(period).min()
+    high_max = history["High"].rolling(period).max()
+    band_width = high_max - low_min
+    raw_k = (history["Close"] - low_min) / band_width * 100
+    k = raw_k.rolling(smooth).mean()
+    return k.where(band_width != 0)
+
+
 def build_signal(rsi: float) -> str:
     """RSI 値に基づく客観的なテクニカル状態のテキストを返す。"""
     if rsi is None or math.isnan(rsi):
@@ -173,16 +187,16 @@ def round_or_none(value, digits: int = 2):
 
 
 def bucket_from_score(score: float):
-    """総合スコア（-5〜+5）を5段階のバケットキーに分類する。NaN は None。"""
+    """総合スコア（-6〜+6）を5段階のバケットキーに分類する。NaN は None。"""
     if score is None or (isinstance(score, float) and math.isnan(score)):
         return None
-    if score >= 3:
+    if score >= 4:
         return "strong_bull"
-    if score >= 1:
+    if score >= 2:
         return "mild_bull"
-    if score <= -3:
+    if score <= -4:
         return "strong_bear"
-    if score <= -1:
+    if score <= -2:
         return "mild_bear"
     return "neutral"
 
@@ -202,6 +216,7 @@ def compute_indicators(history: pd.DataFrame) -> pd.DataFrame:
     df["bb_percent_b"] = calc_bollinger_percent_b(close)
     vol_ma = volume.rolling(VOLUME_MA_PERIOD).mean()
     df["volume_ratio"] = volume / vol_ma
+    df["stoch_k"] = calc_stochastic_k(history)
     daily_change = close.diff()
 
     # --- 各指標の投票（+1: 強気寄り, -1: 弱気寄り, 0: 中立）。NaN は判定不能として NaN のまま伝播させる ---
@@ -236,7 +251,12 @@ def compute_indicators(history: pd.DataFrame) -> pd.DataFrame:
         index=df.index, dtype=float,
     ).where(df["volume_ratio"].notna() & daily_change.notna())
 
-    df["composite_score"] = vote_rsi + vote_macd + vote_ma + vote_bb + vote_volume
+    vote_stoch = pd.Series(
+        np.select([df["stoch_k"] < 20, df["stoch_k"] > 80], [1, -1], default=0),
+        index=df.index, dtype=float,
+    ).where(df["stoch_k"].notna())
+
+    df["composite_score"] = vote_rsi + vote_macd + vote_ma + vote_bb + vote_volume + vote_stoch
     df["forward_up"] = close.shift(-FORWARD_DAYS) > close
     return df
 
@@ -359,6 +379,7 @@ def build_stock_row(entry: dict, history: pd.DataFrame | None) -> dict | None:
         "ticker": code,
         "name": entry["name"],
         "market": entry["market"],
+        "sector": entry.get("sector") or "その他",
         "price": round_or_none(price),
         "change_pct": round_or_none(change_pct),
         "rsi": round_or_none(rsi, 1),
@@ -367,6 +388,7 @@ def build_stock_row(entry: dict, history: pd.DataFrame | None) -> dict | None:
         "macd_hist": round_or_none(df["macd_hist"].iloc[-1], 2),
         "bb_percent_b": round_or_none(df["bb_percent_b"].iloc[-1] * 100, 1) if pd.notna(df["bb_percent_b"].iloc[-1]) else None,
         "volume_ratio": round_or_none(df["volume_ratio"].iloc[-1], 2),
+        "stoch_k": round_or_none(df["stoch_k"].iloc[-1], 1),
         "composite_score": composite_score_int,
         "composite_label": composite_label,
         "up_probability": round_or_none(up_probability, 1),
