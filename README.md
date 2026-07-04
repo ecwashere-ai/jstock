@@ -7,8 +7,10 @@
 | ファイル | 役割 |
 |---|---|
 | `.github/workflows/update_data.yml` | 平日 11:30 JST（前場引け）に自動実行される GitHub Actions ワークフロー |
-| `src/update_stocks.py` | yfinance で株価（過去約2年分）を取得し、RSI・MACD・移動平均トレンド・ボリンジャーバンド・出来高などを計算して `data/stocks.json` に保存 |
+| `src/fetch_universe.py` | JPX公式の上場銘柄一覧から東証プライム全銘柄を取得し `data/universe_prime.json` に保存（7日以上古い場合のみ再取得） |
+| `src/update_stocks.py` | 対象銘柄の株価（過去約2年分）を一括取得し、RSI・MACD・移動平均トレンド・ボリンジャーバンド・出来高などを計算して `data/stocks.json` に保存 |
 | `src/index.html` | Tailwind CSS (CDN) + バニラJS のビルド不要ダッシュボード（ダークモード） |
+| `data/universe_prime.json` | 東証プライム全銘柄リスト（キャッシュ、`fetch_universe.py` が自動更新） |
 | `data/stocks.json` | 計算済みデータ（Actions が自動更新） |
 
 ## セットアップ
@@ -19,9 +21,15 @@
 
 以降は平日 11:30 JST に自動でデータが更新されます。
 
-## 銘柄の追加
+## 対象銘柄（東証プライム全銘柄）
 
-`src/update_stocks.py` の `STOCKS` 配列に1行追加するだけです。
+対象銘柄は `fetch_universe.py` が JPX公式サイトの上場銘柄一覧（Excel）から東証プライム市場に絞り込んで自動生成します（`data/universe_prime.json`、約1,600銘柄、キャッシュは7日ごとに再取得）。このファイルが存在しない・取得に失敗した場合は、`src/update_stocks.py` 内の `FALLBACK_STOCKS`（動作確認用の主要44銘柄）にフォールバックします。
+
+JPX側のファイル形式や配布URLが変更された場合、`fetch_universe.py` の `JPX_LISTED_ISSUES_URL` を最新のものに更新してください。取得に失敗しても既存のキャッシュ・フォールバックがあるため、日次の株価更新自体は止まりません。
+
+株価は Yahoo Finance のレート制限を避けるため `CHUNK_SIZE`（既定150銘柄）ずつまとめて取得します。約1,600銘柄を毎日処理する都合上、ワークフローのタイムアウトは30分に設定しています。
+
+手動で銘柄を追加・固定したい場合は `src/update_stocks.py` の `FALLBACK_STOCKS` 配列に1行追加してください（`data/universe_prime.json` が存在する間は使われません）。
 
 ```python
 {"code": "XXXX.T", "name": "銘柄名", "market": "市場名"},

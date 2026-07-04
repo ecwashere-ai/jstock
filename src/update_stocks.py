@@ -8,12 +8,21 @@ yfinance で過去約2年分の株価を取得し、RSI・MACD・移動平均ト
 結果は data/stocks.json に保存する。GitHub Actions から毎営業日
 11:30 JST に実行される想定。
 
+対象銘柄は data/universe_prime.json（fetch_universe.py が JPX公式の
+上場銘柄一覧から生成する東証プライム全銘柄リスト）を優先的に使用し、
+これが存在しない場合のみ下記の FALLBACK_STOCKS（動作確認用の主要銘柄）
+にフォールバックする。
+
+銘柄数が多い場合の Yahoo Finance 側のレート制限を避けるため、
+株価取得は CHUNK_SIZE 件ずつまとめて yf.download で並行取得する。
+
 ※ 統計的上昇確率はあくまで過去の値動きの頻度を機械的に集計した参考値であり、
    将来の値動きを保証・予測するものではない。売買の推奨を行うものではない。
 """
 
 import json
 import math
+import time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -21,12 +30,14 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+UNIVERSE_PATH = Path(__file__).resolve().parent.parent / "data" / "universe_prime.json"
+
 # ---------------------------------------------------------------------------
-# 対象銘柄リスト
+# フォールバック銘柄リスト（data/universe_prime.json が無い/読み込めない場合に使用）
 # 銘柄を追加したい場合はこの配列に {"code": "XXXX.T", "name": "銘柄名", "market": "市場"}
 # の形式で1行追加するだけでよい。
 # ---------------------------------------------------------------------------
-STOCKS = [
+FALLBACK_STOCKS = [
     {"code": "7203.T", "name": "トヨタ自動車",           "market": "東証プライム"},
     {"code": "6758.T", "name": "ソニーグループ",         "market": "東証プライム"},
     {"code": "8306.T", "name": "三菱UFJフィナンシャルG", "market": "東証プライム"},
@@ -90,6 +101,12 @@ VOLUME_SURGE_RATIO = 1.5
 FETCH_PERIOD = "2y"        # バックテスト用に約2年分を取得
 FORWARD_DAYS = 5           # 何営業日後の値動きを見るか
 MIN_BACKTEST_SAMPLES = 5   # この件数未満の場合は確率を「参考不可」扱いにする
+
+# 東証プライム全銘柄など件数が多い場合、Yahoo Finance への同時リクエストが
+# 集中しすぎるとレート制限にかかりやすいため、CHUNK_SIZE件ずつに分割して
+# 取得し、チャンク間に短い待機を挟む。
+CHUNK_SIZE = 150
+CHUNK_DELAY_SEC = 2
 
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "stocks.json"
 
@@ -245,21 +262,78 @@ def backtest_up_probability(df: pd.DataFrame):
     return up_probability, sample_size, today_score, today_bucket
 
 
-def fetch_stock(entry: dict) -> dict | None:
-    code = entry["code"]
-    try:
-        history = yf.Ticker(code).history(
-            period=FETCH_PERIOD,
-            interval="1d",
-            auto_adjust=True,
-        )
-    except Exception as exc:  # ネットワーク・API 障害時は当該銘柄をスキップ
-        print(f"[WARN] {code}: fetch failed: {exc}")
-        return None
+def load_stock_universe() -> list[dict]:
+    """data/universe_prime.json（東証プライム全銘柄）があればそれを使い、
+    無ければ組み込みの FALLBACK_STOCKS を使う。
+    """
+    if UNIVERSE_PATH.exists():
+        try:
+            cached = json.loads(UNIVERSE_PATH.read_text(encoding="utf-8"))
+            stocks = cached.get("stocks", [])
+            if stocks:
+                print(
+                    f"Loaded {len(stocks)} tickers from {UNIVERSE_PATH} "
+                    f"(fetched_at={cached.get('fetched_at')})"
+                )
+                return stocks
+        except Exception as exc:
+            print(f"[WARN] Failed to load {UNIVERSE_PATH}: {exc}")
 
-    history = history.dropna(subset=["Close"])
-    if len(history) < 2:
-        print(f"[WARN] {code}: not enough data ({len(history)} rows)")
+    print(f"Using built-in fallback list ({len(FALLBACK_STOCKS)} tickers).")
+    return FALLBACK_STOCKS
+
+
+def download_history_batch(tickers: list[str]) -> dict[str, pd.DataFrame]:
+    """複数銘柄の株価を yf.download でまとめて取得する。
+
+    銘柄数が多い場合に Yahoo Finance へ大量の同時リクエストが集中すると
+    レート制限にかかりやすいため、CHUNK_SIZE件ずつに分割し、チャンク間に
+    短い待機を挟みながら取得する。戻り値は {証券コード: 株価DataFrame} の辞書。
+    """
+    result: dict[str, pd.DataFrame] = {}
+
+    for i in range(0, len(tickers), CHUNK_SIZE):
+        chunk = tickers[i : i + CHUNK_SIZE]
+        chunk_no = i // CHUNK_SIZE + 1
+        total_chunks = (len(tickers) + CHUNK_SIZE - 1) // CHUNK_SIZE
+        print(f"Fetching chunk {chunk_no}/{total_chunks} ({len(chunk)} tickers)...")
+
+        try:
+            data = yf.download(
+                tickers=chunk,
+                period=FETCH_PERIOD,
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=True,
+                threads=True,
+                progress=False,
+            )
+        except Exception as exc:
+            print(f"[WARN] chunk {chunk_no} fetch failed: {exc}")
+            continue
+
+        if isinstance(data.columns, pd.MultiIndex):
+            available = set(data.columns.get_level_values(0))
+            for code in chunk:
+                if code not in available:
+                    continue
+                sub = data[code].dropna(subset=["Close"])
+                if not sub.empty:
+                    result[code] = sub
+        elif len(chunk) == 1:
+            sub = data.dropna(subset=["Close"])
+            if not sub.empty:
+                result[chunk[0]] = sub
+
+        if i + CHUNK_SIZE < len(tickers):
+            time.sleep(CHUNK_DELAY_SEC)
+
+    return result
+
+
+def build_stock_row(entry: dict, history: pd.DataFrame | None) -> dict | None:
+    code = entry["code"]
+    if history is None or len(history) < 2:
         return None
 
     close = history["Close"]
@@ -302,16 +376,19 @@ def fetch_stock(entry: dict) -> dict | None:
 
 
 def main() -> None:
+    entries = load_stock_universe()
+    codes = [entry["code"] for entry in entries]
+
+    history_map = download_history_batch(codes)
+    print(f"Fetched history for {len(history_map)}/{len(codes)} tickers.")
+
     results = []
-    for entry in STOCKS:
-        row = fetch_stock(entry)
+    for entry in entries:
+        row = build_stock_row(entry, history_map.get(entry["code"]))
         if row is not None:
             results.append(row)
-            print(
-                f"[OK] {row['ticker']}: price={row['price']} rsi={row['rsi']} "
-                f"score={row['composite_score']} up_prob={row['up_probability']}"
-                f"(n={row['up_probability_samples']})"
-            )
+        else:
+            print(f"[WARN] {entry['code']}: no usable data, skipped")
 
     jst = timezone(timedelta(hours=9))
     payload = {

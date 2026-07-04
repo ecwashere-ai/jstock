@@ -360,11 +360,23 @@
     }
   }
 
+  function debounce(fn, delayMs) {
+    let timer = null;
+    return (...args) => {
+      clearTimeout(timer);
+      timer = setTimeout(() => fn(...args), delayMs);
+    };
+  }
+
+  // 東証プライム全銘柄（最大約1,600件）を扱う場合、数値入力の1文字ごとに
+  // テーブル全体を再描画すると重くなるためデバウンスする。
+  const debouncedApplyFilters = debounce(applyFilters, 200);
+
   document.querySelectorAll('input[name="rsi"]').forEach((el) => el.addEventListener('change', applyFilters));
   document.querySelectorAll('input[name="score"]').forEach((el) => el.addEventListener('change', applyFilters));
-  devBelow.addEventListener('input', applyFilters);
-  devAbove.addEventListener('input', applyFilters);
-  probAbove.addEventListener('input', applyFilters);
+  devBelow.addEventListener('input', debouncedApplyFilters);
+  devAbove.addEventListener('input', debouncedApplyFilters);
+  probAbove.addEventListener('input', debouncedApplyFilters);
   document.getElementById('reset-btn').addEventListener('click', resetFilters);
 
   loadData();
