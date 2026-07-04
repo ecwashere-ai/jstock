@@ -53,6 +53,19 @@ jobs:
             fi
             echo "Push rejected (attempt $attempt), rebasing onto latest remote branch..."
             git fetch origin "$GITHUB_REF_NAME"
-            git rebase "origin/$GITHUB_REF_NAME"
+            if ! git rebase "origin/$GITHUB_REF_NAME"; then
+              # data/stocks.json と data/universe_prime.json は毎回完全に
+              # 再生成される機械生成ファイルなので、テキストの3-wayマージは
+              # 意味を持たない。コンフリクトした場合は今回新しく計算した
+              # 内容（rebase中のtheirs）をそのまま採用する。
+              echo "Rebase conflict on generated data files; keeping this run's freshly computed data."
+              git checkout --theirs -- data/stocks.json data/universe_prime.json 2>/dev/null || true
+              git add data/stocks.json data/universe_prime.json
+              if ! git rebase --continue; then
+                echo "Could not resolve rebase automatically."
+                git rebase --abort
+                exit 1
+              fi
+            fi
             sleep $((attempt * 3))
           done
