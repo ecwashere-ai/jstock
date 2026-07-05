@@ -2,8 +2,8 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>JP Stock Screener | テクニカル指標ダッシュボード</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>JP Stock Screener | 本日の注目銘柄</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script>
   tailwind.config = {
@@ -27,180 +27,56 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #1a2547; border-radius: 4px; }
   .glass { background: rgba(17, 26, 53, 0.55); backdrop-filter: blur(12px); border: 1px solid rgba(201, 169, 98, 0.12); }
-  input[type="number"] { -moz-appearance: textfield; }
-  input::-webkit-outer-spin-button, input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
-  select { color-scheme: dark; }
-  th.sortable { cursor: pointer; user-select: none; }
-  th.sortable:hover { color: #c9a962; }
-  .sort-arrow { display: inline-block; width: 0.9em; opacity: 0.5; }
-  th.sort-active .sort-arrow { opacity: 1; color: #c9a962; }
-  td.truncate-cell { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display: none; }
+  .detail-arrow { transition: transform 0.15s ease; }
+  details[open] .detail-arrow { transform: rotate(180deg); }
 </style>
 </head>
 <body class="min-h-screen text-slate-200 antialiased">
 
-<div class="max-w-[1500px] mx-auto px-4 py-6 lg:px-8">
+<div class="max-w-2xl mx-auto px-3 py-5 sm:px-4">
 
   <!-- ヘッダー -->
-  <header class="flex flex-wrap items-end justify-between gap-3 pb-6 border-b border-navy-700/60 mb-6">
-    <div>
-      <h1 class="text-2xl lg:text-3xl font-semibold tracking-wide text-slate-100">
-        JP Stock <span class="text-accent">Screener</span>
-      </h1>
-      <p class="text-sm text-slate-400 mt-1">日本株テクニカル指標モニター（個人利用・情報提供のみ）</p>
-    </div>
-    <div class="text-right">
-      <p class="text-xs uppercase tracking-widest text-slate-500">Last Update</p>
-      <p id="updated-at" class="font-mono text-sm text-accent">—</p>
+  <header class="mb-4">
+    <h1 class="text-xl sm:text-2xl font-semibold tracking-wide text-slate-100">
+      JP Stock <span class="text-accent">Screener</span>
+    </h1>
+    <div class="flex items-center justify-between mt-1">
+      <p class="text-xs text-slate-400">本日の注目銘柄（個人利用・情報提供のみ）</p>
+      <p id="updated-at" class="font-mono text-xs text-accent shrink-0 ml-2">—</p>
     </div>
   </header>
 
-  <div class="flex flex-col lg:flex-row gap-6">
-
-    <!-- 左サイドバー: フィルター -->
-    <aside class="lg:w-72 shrink-0">
-      <div class="glass rounded-xl p-5 lg:sticky lg:top-6">
-        <h2 class="text-xs font-semibold uppercase tracking-widest text-accent mb-5">Screening Filters</h2>
-
-        <!-- セクターフィルター -->
-        <fieldset class="mb-6">
-          <legend class="text-sm font-medium text-slate-300 mb-3">セクター（33業種）</legend>
-          <select id="sector-filter"
-                  class="w-full bg-navy-900 border border-navy-700 rounded-md px-2 py-1.5 text-sm text-slate-200 focus:outline-none focus:border-accent/60">
-            <option value="all">すべて</option>
-          </select>
-        </fieldset>
-
-        <!-- 見通し（総合スコア）フィルター -->
-        <fieldset class="mb-6">
-          <legend class="text-sm font-medium text-slate-300 mb-3">見通し（総合判定）</legend>
-          <div class="space-y-2 text-sm">
-            <label class="flex items-center gap-2.5 cursor-pointer text-slate-400 hover:text-slate-200 transition">
-              <input type="radio" name="score" value="all" checked class="accent-[#c9a962]">
-              指定なし
-            </label>
-            <label class="flex items-center gap-2.5 cursor-pointer text-slate-400 hover:text-slate-200 transition">
-              <input type="radio" name="score" value="bull" class="accent-[#c9a962]">
-              上昇優勢
-            </label>
-            <label class="flex items-center gap-2.5 cursor-pointer text-slate-400 hover:text-slate-200 transition">
-              <input type="radio" name="score" value="bear" class="accent-[#c9a962]">
-              下落優勢
-            </label>
-          </div>
-          <p class="text-xs text-slate-500 leading-relaxed mt-2">RSI・MACD・移動平均トレンド・ボリンジャーバンド・出来高・ストキャスティクスの6指標を内部で合成した客観的な数値です。</p>
-        </fieldset>
-
-        <!-- 統計的上昇確率フィルター -->
-        <fieldset class="mb-6">
-          <legend class="text-sm font-medium text-slate-300 mb-3">統計的上昇確率（参考）</legend>
-          <div class="flex items-center gap-2 text-sm">
-            <input id="prob-above" type="number" step="5" min="0" max="100" placeholder="60"
-                   class="w-20 bg-navy-900 border border-navy-700 rounded-md px-2 py-1.5 font-mono text-sm text-slate-200 focus:outline-none focus:border-accent/60">
-            <span class="text-slate-400">% 以上</span>
-          </div>
-          <p class="text-xs text-slate-500 leading-relaxed mt-2">同一銘柄の過去約2年間で、現在と類似のテクニカル状態から5営業日後に株価が上昇していた頻度です。将来を保証するものではありません。</p>
-        </fieldset>
-
-        <!-- RSI フィルター -->
-        <fieldset class="mb-6">
-          <legend class="text-sm font-medium text-slate-300 mb-3">RSI (14日)</legend>
-          <div class="space-y-2 text-sm">
-            <label class="flex items-center gap-2.5 cursor-pointer text-slate-400 hover:text-slate-200 transition">
-              <input type="radio" name="rsi" value="all" checked class="accent-[#c9a962]">
-              指定なし
-            </label>
-            <label class="flex items-center gap-2.5 cursor-pointer text-slate-400 hover:text-slate-200 transition">
-              <input type="radio" name="rsi" value="low" class="accent-[#c9a962]">
-              30以下（RSI低水準）
-            </label>
-            <label class="flex items-center gap-2.5 cursor-pointer text-slate-400 hover:text-slate-200 transition">
-              <input type="radio" name="rsi" value="high" class="accent-[#c9a962]">
-              70以上（RSI高水準）
-            </label>
-          </div>
-        </fieldset>
-
-        <!-- 25日乖離率フィルター -->
-        <fieldset class="mb-6">
-          <legend class="text-sm font-medium text-slate-300 mb-3">25日移動平均乖離率</legend>
-          <div class="space-y-3 text-sm">
-            <div class="flex items-center gap-2">
-              <input id="dev-below" type="number" step="0.5" placeholder="-5"
-                     class="w-20 bg-navy-900 border border-navy-700 rounded-md px-2 py-1.5 font-mono text-sm text-slate-200 focus:outline-none focus:border-accent/60">
-              <span class="text-slate-400">% 以下</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <input id="dev-above" type="number" step="0.5" placeholder="5"
-                     class="w-20 bg-navy-900 border border-navy-700 rounded-md px-2 py-1.5 font-mono text-sm text-slate-200 focus:outline-none focus:border-accent/60">
-              <span class="text-slate-400">% 以上</span>
-            </div>
-            <p class="text-xs text-slate-500 leading-relaxed">空欄の場合は乖離率での絞り込みを行いません。両方入力した場合はいずれかに合致する銘柄を表示します。</p>
-          </div>
-        </fieldset>
-
-        <button id="reset-btn"
-                class="w-full py-2 rounded-md border border-navy-700 text-sm text-slate-400 hover:text-accent hover:border-accent/50 transition">
-          条件をリセット
-        </button>
-      </div>
-    </aside>
-
-    <!-- 右メインパネル -->
-    <main class="flex-1 min-w-0">
-
-      <!-- 件数サマリー -->
-      <div class="glass rounded-xl px-5 py-4 mb-4 flex items-center justify-between">
-        <p class="text-sm text-slate-400">
-          条件合致: <span id="match-count" class="text-2xl font-semibold text-accent font-mono mx-1">0</span> 銘柄
-          <span class="text-slate-500">/ 全 <span id="total-count" class="font-mono">0</span> 銘柄</span>
-        </p>
-        <p id="filter-status" class="text-xs text-slate-500 hidden sm:block">フィルターなし</p>
-      </div>
-
-      <!-- テーブル -->
-      <div class="glass rounded-xl overflow-hidden">
-        <table class="w-full text-sm table-fixed">
-          <colgroup>
-            <col style="width:7%">
-            <col style="width:18%">
-            <col style="width:12%">
-            <col style="width:10%">
-            <col style="width:8%">
-            <col style="width:22%">
-            <col style="width:7%">
-            <col style="width:9%">
-            <col style="width:7%">
-          </colgroup>
-          <thead>
-            <tr class="text-left text-xs uppercase tracking-wider text-slate-500 border-b border-navy-700/60">
-              <th class="sortable px-3 py-3 font-medium" data-sort="code">コード<span class="sort-arrow"></span></th>
-              <th class="sortable px-3 py-3 font-medium" data-sort="name">銘柄名<span class="sort-arrow"></span></th>
-              <th class="sortable px-3 py-3 font-medium" data-sort="sector">セクター<span class="sort-arrow"></span></th>
-              <th class="sortable px-3 py-3 font-medium text-right" data-sort="price">現在値<span class="sort-arrow"></span></th>
-              <th class="sortable px-3 py-3 font-medium text-right" data-sort="change_pct">前日比<span class="sort-arrow"></span></th>
-              <th class="sortable px-3 py-3 font-medium text-center" data-sort="outlook">見通し<span class="sort-arrow"></span></th>
-              <th class="sortable px-3 py-3 font-medium text-right" data-sort="rsi">RSI<span class="sort-arrow"></span></th>
-              <th class="sortable px-3 py-3 font-medium text-right" data-sort="ma25_dev_pct">乖離率<span class="sort-arrow"></span></th>
-              <th class="px-3 py-3 font-medium text-center">チャート</th>
-            </tr>
-          </thead>
-          <tbody id="stock-tbody" class="divide-y divide-navy-700/40"></tbody>
-        </table>
-        <p id="empty-message" class="hidden px-5 py-10 text-center text-slate-500 text-sm">条件に合致する銘柄がありません。</p>
-        <p id="error-message" class="hidden px-5 py-10 text-center text-red-400/80 text-sm"></p>
-      </div>
-
-      <p class="text-xs text-slate-600 mt-4 leading-relaxed">
-        ※ 本ページはテクニカル指標の数値を客観的に表示するものであり、特定の金融商品の売買を推奨するものではありません。
-        「見通し」は RSI・MACD・移動平均トレンド・ボリンジャーバンド・出来高・ストキャスティクスの6指標を内部で機械的に
-        合成した総合スコアと、同一銘柄の過去約2年間において現在と類似のテクニカル状態が発生した際に5営業日後の株価が
-        上昇していた頻度（統計的上昇確率、カーソルを合わせるとサンプル数を表示）をあわせて簡潔に表示したものであり、
-        将来の値動きを予測・保証するものではありません（サンプル数が少ない場合は確率を表示しません）。列見出しをクリックすると
-        並び替えができます。投資に関する最終判断はご自身の責任で行ってください。データは Yahoo Finance 由来で遅延を含みます。
-      </p>
-    </main>
+  <!-- サマリー -->
+  <div class="glass rounded-xl px-4 py-3 mb-4 flex items-center justify-between text-sm">
+    <span class="text-slate-400">
+      表示中 <span id="match-count" class="text-accent font-mono font-semibold">0</span> 銘柄
+      <span class="text-slate-600">（全 <span id="scanned-count" class="font-mono">0</span> 銘柄を走査）</span>
+    </span>
   </div>
+
+  <!-- 絞り込みタブ -->
+  <div id="filter-tabs" class="grid grid-cols-3 gap-2 mb-4">
+    <button data-filter="all" class="filter-tab py-2.5 rounded-lg text-sm font-medium border border-navy-700 text-slate-300 transition">すべて</button>
+    <button data-filter="buy" class="filter-tab py-2.5 rounded-lg text-sm font-medium border border-navy-700 text-slate-300 transition">買い</button>
+    <button data-filter="sell" class="filter-tab py-2.5 rounded-lg text-sm font-medium border border-navy-700 text-slate-300 transition">売り</button>
+  </div>
+
+  <!-- カード一覧 -->
+  <div id="card-list" class="space-y-3"></div>
+
+  <p id="empty-message" class="hidden px-5 py-10 text-center text-slate-500 text-sm">条件に合致する銘柄がありません。</p>
+  <p id="error-message" class="hidden px-5 py-10 text-center text-red-400/80 text-sm"></p>
+
+  <p class="text-xs text-slate-600 mt-6 leading-relaxed">
+    ※ 本ページの「買い」「売り」表示は、RSI・MACD・移動平均トレンド・ボリンジャーバンド・出来高・ストキャスティクスの
+    6指標を機械的に合成した総合スコアと、同一銘柄の過去約2年間の統計的傾向にもとづく個人的な情報整理です。
+    投資助言業の登録を受けた者による助言ではなく、特定の金融商品の売買を勧誘・推奨するものではありません。
+    将来の値動きを保証・予測するものでもありません。表示件数は本日の全東証プライム銘柄走査の中から、
+    スコアが強い順に買い・売りそれぞれ上位10銘柄（最大20銘柄）に絞ったものです。投資に関する最終判断は
+    ご自身の責任で行ってください。データは Yahoo Finance 由来で遅延を含みます。個人利用限定。
+  </p>
 </div>
 
 <script>
@@ -209,38 +85,14 @@
 
   const DATA_URL = '../data/stocks.json';
   let allStocks = [];
-  let sortState = { key: 'outlook', dir: 'desc' };
+  let currentFilter = 'all';
 
-  const tbody         = document.getElementById('stock-tbody');
-  const matchCount     = document.getElementById('match-count');
-  const totalCount     = document.getElementById('total-count');
-  const updatedAt      = document.getElementById('updated-at');
-  const emptyMessage   = document.getElementById('empty-message');
-  const errorMessage   = document.getElementById('error-message');
-  const filterStatus   = document.getElementById('filter-status');
-  const devBelow       = document.getElementById('dev-below');
-  const devAbove       = document.getElementById('dev-above');
-  const probAbove      = document.getElementById('prob-above');
-  const sectorFilter   = document.getElementById('sector-filter');
-
-  // 総合スコア(-6〜+6)を5段階に分類し、上向き/下向きの矢印を添えた
-  // 簡潔なラベルにする（断定的な売買表現は使わない）。
-  const SCORE_META = {
-    strong_bull: { label: '上昇優勢', arrow: '▲▲', class: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30' },
-    mild_bull:   { label: 'やや上昇', arrow: '▲',  class: 'bg-emerald-500/10 text-emerald-400/80 border-emerald-500/20' },
-    neutral:     { label: '中立',     arrow: '―',  class: 'bg-slate-500/10 text-slate-400 border-slate-500/20' },
-    mild_bear:   { label: 'やや下落', arrow: '▼',  class: 'bg-red-500/10 text-red-400/80 border-red-500/20' },
-    strong_bear: { label: '下落優勢', arrow: '▼▼', class: 'bg-red-500/15 text-red-400 border-red-500/30' },
-  };
-
-  function bucketFromScore(score) {
-    if (score === null || score === undefined) return null;
-    if (score >= 4) return 'strong_bull';
-    if (score >= 2) return 'mild_bull';
-    if (score <= -4) return 'strong_bear';
-    if (score <= -2) return 'mild_bear';
-    return 'neutral';
-  }
+  const cardList      = document.getElementById('card-list');
+  const matchCount    = document.getElementById('match-count');
+  const scannedCount  = document.getElementById('scanned-count');
+  const updatedAt     = document.getElementById('updated-at');
+  const emptyMessage  = document.getElementById('empty-message');
+  const errorMessage  = document.getElementById('error-message');
 
   const fmtNumber = (v, digits = 2) =>
     (v === null || v === undefined) ? '—'
@@ -249,183 +101,99 @@
   const escapeHtml = (s) => String(s).replace(/[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-  // --- 並び替え -------------------------------------------------------
-  const SORT_ACCESSORS = {
-    code: (s) => Number(s.code),
-    name: (s) => s.name,
-    sector: (s) => s.sector,
-    price: (s) => s.price,
-    change_pct: (s) => s.change_pct,
-    outlook: (s) => s.composite_score,
-    rsi: (s) => s.rsi,
-    ma25_dev_pct: (s) => s.ma25_dev_pct,
-  };
-
-  function compareValues(a, b) {
-    const aNull = a === null || a === undefined || (typeof a === 'number' && Number.isNaN(a));
-    const bNull = b === null || b === undefined || (typeof b === 'number' && Number.isNaN(b));
-    if (aNull && bNull) return 0;
-    if (aNull) return 1;
-    if (bNull) return -1;
-    if (typeof a === 'string' || typeof b === 'string') return String(a).localeCompare(String(b), 'ja');
-    return a - b;
-  }
-
-  function sortStocks(stocks) {
-    const accessor = SORT_ACCESSORS[sortState.key];
-    if (!accessor) return stocks;
-    const sorted = [...stocks].sort((s1, s2) => {
-      const cmp = compareValues(accessor(s1), accessor(s2));
-      return sortState.dir === 'asc' ? cmp : -cmp;
-    });
-    return sorted;
-  }
-
-  function updateSortHeaders() {
-    document.querySelectorAll('th.sortable').forEach((th) => {
-      const key = th.dataset.sort;
-      const arrow = th.querySelector('.sort-arrow');
-      const active = key === sortState.key;
-      th.classList.toggle('sort-active', active);
-      arrow.textContent = active ? (sortState.dir === 'asc' ? '▲' : '▼') : '◇';
-    });
-  }
-
-  function handleHeaderClick(event) {
-    const th = event.currentTarget;
-    const key = th.dataset.sort;
-    if (sortState.key === key) {
-      sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
-    } else {
-      sortState = { key, dir: 'asc' };
-    }
-    updateSortHeaders();
-    applyFilters();
-  }
-
-  // --- フィルター -------------------------------------------------------
-  function getFilters() {
-    const rsiMode = document.querySelector('input[name="rsi"]:checked').value;
-    const scoreMode = document.querySelector('input[name="score"]:checked').value;
-    const below = devBelow.value === '' ? null : parseFloat(devBelow.value);
-    const above = devAbove.value === '' ? null : parseFloat(devAbove.value);
-    const probMin = probAbove.value === '' ? null : parseFloat(probAbove.value);
-    const sector = sectorFilter.value;
-    return { rsiMode, scoreMode, below, above, probMin, sector };
-  }
-
-  function applyFilters() {
-    const { rsiMode, scoreMode, below, above, probMin, sector } = getFilters();
-
+  function applyFilter() {
     const filtered = allStocks.filter((s) => {
-      if (sector !== 'all' && s.sector !== sector) return false;
-
-      if (rsiMode === 'low'  && !(s.rsi !== null && s.rsi <= 30)) return false;
-      if (rsiMode === 'high' && !(s.rsi !== null && s.rsi >= 70)) return false;
-
-      if (below !== null || above !== null) {
-        if (s.ma25_dev_pct === null) return false;
-        const hitBelow = below !== null && s.ma25_dev_pct <= below;
-        const hitAbove = above !== null && s.ma25_dev_pct >= above;
-        if (!hitBelow && !hitAbove) return false;
-      }
-
-      if (scoreMode !== 'all') {
-        const bucket = bucketFromScore(s.composite_score);
-        if (scoreMode === 'bull' && !(bucket === 'strong_bull' || bucket === 'mild_bull')) return false;
-        if (scoreMode === 'bear' && !(bucket === 'strong_bear' || bucket === 'mild_bear')) return false;
-      }
-
-      if (probMin !== null && !(s.up_probability !== null && s.up_probability >= probMin)) return false;
-
+      if (currentFilter === 'buy') return s.call === '買い';
+      if (currentFilter === 'sell') return s.call === '売り';
       return true;
     });
-
-    const sorted = sortStocks(filtered);
-    renderTable(sorted);
-    renderStatus(rsiMode, scoreMode, below, above, probMin, sector, sorted.length);
+    renderCards(filtered);
+    matchCount.textContent = filtered.length;
   }
 
-  function renderStatus(rsiMode, scoreMode, below, above, probMin, sector, count) {
-    matchCount.textContent = count;
-    const parts = [];
-    if (sector !== 'all') parts.push(`セクター: ${sector}`);
-    if (rsiMode === 'low')  parts.push('RSI 30以下');
-    if (rsiMode === 'high') parts.push('RSI 70以上');
-    if (below !== null) parts.push(`乖離率 ${below}% 以下`);
-    if (above !== null) parts.push(`乖離率 ${above}% 以上`);
-    if (scoreMode === 'bull') parts.push('見通し: 上昇優勢');
-    if (scoreMode === 'bear') parts.push('見通し: 下落優勢');
-    if (probMin !== null) parts.push(`上昇確率 ${probMin}% 以上`);
-    filterStatus.textContent = parts.length ? '適用中: ' + parts.join(' / ') : 'フィルターなし';
-  }
-
-  function renderTable(stocks) {
+  function renderCards(stocks) {
     emptyMessage.classList.toggle('hidden', stocks.length > 0);
 
-    tbody.innerHTML = stocks.map((s) => {
+    cardList.innerHTML = stocks.map((s) => {
+      const isBuy = s.call === '買い';
+      const callClass = isBuy
+        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
+        : 'bg-red-500/15 text-red-400 border-red-500/40';
+      const callArrow = isBuy ? '▲' : '▼';
+
       const chg = s.change_pct;
-      const chgClass = chg === null ? 'text-slate-500'
-        : chg > 0 ? 'text-emerald-400'
-        : chg < 0 ? 'text-red-400'
-        : 'text-slate-400';
+      const chgClass = chg === null ? 'text-slate-500' : chg > 0 ? 'text-emerald-400' : chg < 0 ? 'text-red-400' : 'text-slate-400';
       const chgText = chg === null ? '—' : `${chg > 0 ? '+' : ''}${fmtNumber(chg)}%`;
 
-      const rsiClass = s.rsi === null ? 'text-slate-500'
-        : (s.rsi <= 30 || s.rsi >= 70) ? 'text-accent font-semibold'
-        : 'text-slate-300';
-
-      const bucket = bucketFromScore(s.composite_score);
-      const meta = SCORE_META[bucket] || { label: 'データ不足', arrow: '', class: 'bg-slate-500/10 text-slate-500 border-slate-500/20' };
       const prob = s.up_probability;
-      const probText = prob === null ? '' : ` ${fmtNumber(prob, 0)}%`;
-      const tooltip = prob === null
-        ? `統計的上昇確率: 参考不可（サンプル数 n=${s.up_probability_samples ?? 0}）`
-        : `統計的上昇確率: ${fmtNumber(prob, 1)}%（サンプル数 n=${s.up_probability_samples}, ${s.forward_days}営業日後）`;
+      const probText = prob === null
+        ? `参考不可（n=${s.up_probability_samples ?? 0}）`
+        : `${fmtNumber(prob, 1)}%（n=${s.up_probability_samples}, ${s.forward_days}営業日後）`;
+
+      const reasons = (s.reasons || []);
+      const reasonsHtml = reasons.length
+        ? `<ul class="mt-2 space-y-1">${reasons.map((r) => `<li class="flex gap-1.5 text-xs text-slate-400"><span class="text-accent">・</span>${escapeHtml(r)}</li>`).join('')}</ul>`
+        : `<p class="mt-2 text-xs text-slate-500">特筆すべき突出した指標はありません。</p>`;
 
       const tvSymbol = encodeURIComponent('TSE:' + s.code);
 
       return `
-        <tr class="hover:bg-navy-800/40 transition">
-          <td class="px-3 py-3 font-mono text-slate-400">${escapeHtml(s.code)}</td>
-          <td class="px-3 py-3 font-medium text-slate-200 truncate-cell" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</td>
-          <td class="px-3 py-3 text-xs text-slate-500 truncate-cell" title="${escapeHtml(s.sector || '')}">${escapeHtml(s.sector || '—')}</td>
-          <td class="px-3 py-3 text-right font-mono text-slate-200">${fmtNumber(s.price)}</td>
-          <td class="px-3 py-3 text-right font-mono ${chgClass}">${chgText}</td>
-          <td class="px-3 py-3 text-center">
-            <span class="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs border whitespace-nowrap ${meta.class}" title="${tooltip}">
-              <span>${meta.arrow}</span><span>${meta.label}</span><span class="font-mono">${probText}</span>
+        <div class="glass rounded-xl p-4">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-mono text-xs text-slate-500">${escapeHtml(s.code)}</span>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-navy-800 text-slate-400 border border-navy-700">${escapeHtml(s.sector || '—')}</span>
+              </div>
+              <p class="text-base font-semibold text-slate-100 mt-1 truncate">${escapeHtml(s.name)}</p>
+            </div>
+            <span class="shrink-0 inline-flex items-center gap-1 px-3 py-2 rounded-lg text-base font-bold border ${callClass}">
+              ${callArrow} ${escapeHtml(s.call)}
             </span>
-          </td>
-          <td class="px-3 py-3 text-right font-mono ${rsiClass}">${s.rsi === null ? '—' : fmtNumber(s.rsi, 1)}</td>
-          <td class="px-3 py-3 text-right font-mono ${s.ma25_dev_pct !== null && s.ma25_dev_pct < 0 ? 'text-red-400/90' : 'text-slate-300'}">${s.ma25_dev_pct === null ? '—' : `${s.ma25_dev_pct > 0 ? '+' : ''}${fmtNumber(s.ma25_dev_pct)}%`}</td>
-          <td class="px-3 py-3 text-center">
+          </div>
+
+          <div class="flex items-baseline gap-3 mt-3">
+            <span class="font-mono text-lg text-slate-100">${fmtNumber(s.price)}</span>
+            <span class="font-mono text-sm ${chgClass}">${chgText}</span>
+          </div>
+
+          ${reasonsHtml}
+
+          <details class="mt-3 border-t border-navy-700/60 pt-2">
+            <summary class="flex items-center justify-between text-xs text-slate-500 hover:text-accent transition">
+              <span>詳細データを見る</span>
+              <svg class="detail-arrow w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+              </svg>
+            </summary>
+            <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <div class="text-slate-500">RSI (14日) <span class="float-right font-mono text-slate-300">${s.rsi === null ? '—' : fmtNumber(s.rsi, 1)}</span></div>
+              <div class="text-slate-500">25日乖離率 <span class="float-right font-mono text-slate-300">${s.ma25_dev_pct === null ? '—' : fmtNumber(s.ma25_dev_pct) + '%'}</span></div>
+              <div class="text-slate-500">総合スコア <span class="float-right font-mono text-slate-300">${s.composite_score === null ? '—' : (s.composite_score > 0 ? '+' : '') + s.composite_score}</span></div>
+              <div class="text-slate-500">統計的上昇確率 <span class="float-right font-mono text-slate-300">${probText}</span></div>
+            </div>
             <a href="https://www.tradingview.com/chart/?symbol=${tvSymbol}" target="_blank" rel="noopener noreferrer"
-               title="TradingViewで表示"
-               class="inline-flex items-center justify-center w-8 h-8 rounded-md border border-navy-700 text-slate-400 hover:text-accent hover:border-accent/50 transition">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+               class="mt-3 flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-xs border border-navy-700 text-slate-400 hover:text-accent hover:border-accent/50 transition">
+              TradingViewでチャートを見る
+              <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H18v4.5M18 6l-7.5 7.5M18 13.5V18H6V6h4.5"/>
               </svg>
             </a>
-          </td>
-        </tr>`;
+          </details>
+        </div>`;
     }).join('');
   }
 
-  function populateSectorOptions() {
-    const sectors = Array.from(new Set(allStocks.map((s) => s.sector).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'ja'));
-    sectorFilter.innerHTML = '<option value="all">すべて</option>' +
-      sectors.map((sec) => `<option value="${escapeHtml(sec)}">${escapeHtml(sec)}</option>`).join('');
-  }
-
-  function resetFilters() {
-    document.querySelector('input[name="rsi"][value="all"]').checked = true;
-    document.querySelector('input[name="score"][value="all"]').checked = true;
-    devBelow.value = '';
-    devAbove.value = '';
-    probAbove.value = '';
-    sectorFilter.value = 'all';
-    applyFilters();
+  function setFilter(filter) {
+    currentFilter = filter;
+    document.querySelectorAll('.filter-tab').forEach((btn) => {
+      const active = btn.dataset.filter === filter;
+      btn.classList.toggle('bg-accent/15', active);
+      btn.classList.toggle('text-accent', active);
+      btn.classList.toggle('border-accent/50', active);
+      btn.classList.toggle('text-slate-300', !active);
+    });
+    applyFilter();
   }
 
   async function loadData() {
@@ -434,38 +202,20 @@
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       allStocks = data.stocks || [];
-      totalCount.textContent = allStocks.length;
+      scannedCount.textContent = data.scanned_count ?? allStocks.length;
       updatedAt.textContent = data.updated_at || '—';
-      populateSectorOptions();
-      updateSortHeaders();
-      applyFilters();
+      applyFilter();
     } catch (err) {
       errorMessage.textContent = `データの読み込みに失敗しました (${err.message})。GitHub Actions の初回実行後に data/stocks.json が生成されます。`;
       errorMessage.classList.remove('hidden');
     }
   }
 
-  function debounce(fn, delayMs) {
-    let timer = null;
-    return (...args) => {
-      clearTimeout(timer);
-      timer = setTimeout(() => fn(...args), delayMs);
-    };
-  }
+  document.querySelectorAll('.filter-tab').forEach((btn) => {
+    btn.addEventListener('click', () => setFilter(btn.dataset.filter));
+  });
 
-  // 東証プライム全銘柄（最大約1,600件）を扱う場合、数値入力の1文字ごとに
-  // テーブル全体を再描画すると重くなるためデバウンスする。
-  const debouncedApplyFilters = debounce(applyFilters, 200);
-
-  document.querySelectorAll('input[name="rsi"]').forEach((el) => el.addEventListener('change', applyFilters));
-  document.querySelectorAll('input[name="score"]').forEach((el) => el.addEventListener('change', applyFilters));
-  devBelow.addEventListener('input', debouncedApplyFilters);
-  devAbove.addEventListener('input', debouncedApplyFilters);
-  probAbove.addEventListener('input', debouncedApplyFilters);
-  sectorFilter.addEventListener('change', applyFilters);
-  document.getElementById('reset-btn').addEventListener('click', resetFilters);
-  document.querySelectorAll('th.sortable').forEach((th) => th.addEventListener('click', handleHeaderClick));
-
+  setFilter('all');
   loadData();
 })();
 </script>

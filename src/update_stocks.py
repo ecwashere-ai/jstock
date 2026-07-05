@@ -16,9 +16,18 @@ yfinance で過去約2年分の株価を取得し、RSI・MACD・移動平均ト
 
 銘柄数が多い場合の Yahoo Finance 側のレート制限を避けるため、
 株価取得は CHUNK_SIZE 件ずつまとめて yf.download で並行取得する。
+なお「上位銘柄に絞る」のは最終的な出力（data/stocks.json）のみであり、
+そもそも上位を発見するために毎回プライム市場全銘柄をスキャンする必要が
+あるため、内部の取得・計算処理自体は全銘柄が対象のまま。
 
-※ 統計的上昇確率はあくまで過去の値動きの頻度を機械的に集計した参考値であり、
-   将来の値動きを保証・予測するものではない。売買の推奨を行うものではない。
+最終的に data/stocks.json へ保存するのは、総合スコアが最も強い
+「買い」候補 TOP_N 銘柄と「売り」候補 TOP_N 銘柄（合計最大 TOP_N*2 銘柄、
+既定20銘柄）のみに絞り込む。スマートフォンでの一覧性と読み込み速度を
+優先するための設計。
+
+※ 統計的上昇確率・総合スコアはあくまで過去の値動きの頻度を機械的に
+   集計した参考値であり、将来の値動きを保証・予測するものではない。
+   個人の情報整理を目的とした参考情報であり、投資助言ではない。
 """
 
 import json
@@ -112,6 +121,9 @@ MIN_BACKTEST_SAMPLES = 5   # この件数未満の場合は確率を「参考不
 CHUNK_SIZE = 150
 CHUNK_DELAY_SEC = 2
 
+# 最終出力に残す「買い」候補・「売り」候補それぞれの件数（合計最大 TOP_N*2 銘柄）
+TOP_N = 10
+
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "stocks.json"
 
 # 総合スコア（-6〜+6）を5段階に分類する際のラベル（客観的なテクニカル用語のみ使用）
@@ -177,6 +189,54 @@ def build_signal(rsi: float) -> str:
     if rsi >= 70:
         return "買われすぎ水準（RSI70以上）"
     return "シグナルなし"
+
+
+def build_reasons(latest: pd.Series) -> list[str]:
+    """直近1営業日の指標値から、総合スコアの根拠となった客観的なテクニカル
+    状態を短い日本語の文でリストアップする（断定的な売買表現は使わない）。
+    """
+    reasons = []
+
+    rsi = latest["rsi"]
+    if pd.notna(rsi):
+        if rsi <= 30:
+            reasons.append(f"RSIが{rsi:.1f}と売られすぎ水準")
+        elif rsi >= 70:
+            reasons.append(f"RSIが{rsi:.1f}と買われすぎ水準")
+
+    macd_hist = latest["macd_hist"]
+    if pd.notna(macd_hist):
+        if macd_hist > 0:
+            reasons.append("MACDがシグナル線を上回り上昇モメンタム")
+        elif macd_hist < 0:
+            reasons.append("MACDがシグナル線を下回り下降モメンタム")
+
+    close, ma_short, ma_long = latest["close"], latest["ma_short"], latest["ma_long"]
+    if pd.notna(ma_short) and pd.notna(ma_long):
+        if close > ma_short > ma_long:
+            reasons.append("25日線が75日線を上回る上昇トレンド")
+        elif close < ma_short < ma_long:
+            reasons.append("25日線が75日線を下回る下降トレンド")
+
+    bb = latest["bb_percent_b"]
+    if pd.notna(bb):
+        if bb < 0.2:
+            reasons.append("ボリンジャーバンド下限に接近")
+        elif bb > 0.8:
+            reasons.append("ボリンジャーバンド上限に接近")
+
+    vol_ratio = latest["volume_ratio"]
+    if pd.notna(vol_ratio) and vol_ratio > VOLUME_SURGE_RATIO:
+        reasons.append(f"出来高が平常の{vol_ratio:.1f}倍に急増")
+
+    stoch = latest["stoch_k"]
+    if pd.notna(stoch):
+        if stoch < 20:
+            reasons.append("ストキャスティクスが売られすぎ水準")
+        elif stoch > 80:
+            reasons.append("ストキャスティクスが買われすぎ水準")
+
+    return reasons
 
 
 def round_or_none(value, digits: int = 2):
@@ -282,6 +342,29 @@ def backtest_up_probability(df: pd.DataFrame):
     return up_probability, sample_size, today_score, today_bucket
 
 
+def select_top_candidates(rows: list[dict], top_n: int = TOP_N) -> list[dict]:
+    """総合スコアが強い「買い」候補・「売り」候補をそれぞれ上位 top_n 件選ぶ。
+    同点の場合は統計的上昇確率が50%からより離れている（自信度が高い）方を優先する。
+    """
+    def confidence(row: dict) -> float:
+        prob = row["up_probability"]
+        return abs(prob - 50) if prob is not None else -1.0
+
+    valid = [r for r in rows if r["composite_score"] is not None]
+    bullish = [r for r in valid if r["composite_score"] > 0]
+    bearish = [r for r in valid if r["composite_score"] < 0]
+
+    bullish.sort(key=lambda r: (r["composite_score"], confidence(r)), reverse=True)
+    bearish.sort(key=lambda r: (-r["composite_score"], confidence(r)), reverse=True)
+
+    for row in bullish:
+        row["call"] = "買い"
+    for row in bearish:
+        row["call"] = "売り"
+
+    return bullish[:top_n] + bearish[:top_n]
+
+
 def load_stock_universe() -> list[dict]:
     """data/universe_prime.json（東証プライム全銘柄）があればそれを使い、
     無ければ組み込みの FALLBACK_STOCKS を使う。
@@ -373,6 +456,7 @@ def build_stock_row(entry: dict, history: pd.DataFrame | None) -> dict | None:
     up_probability, sample_size, composite_score, bucket = backtest_up_probability(df)
     composite_score_int = None if bucket is None else int(composite_score)
     composite_label = SCORE_LABELS[bucket] if bucket is not None else "データ不足"
+    reasons = build_reasons(df.iloc[-1])
 
     return {
         "code": code.replace(".T", ""),
@@ -394,6 +478,7 @@ def build_stock_row(entry: dict, history: pd.DataFrame | None) -> dict | None:
         "up_probability": round_or_none(up_probability, 1),
         "up_probability_samples": sample_size,
         "forward_days": FORWARD_DAYS,
+        "reasons": reasons,
     }
 
 
@@ -412,12 +497,17 @@ def main() -> None:
         else:
             print(f"[WARN] {entry['code']}: no usable data, skipped")
 
+    print(f"Scanned {len(results)} tickers with usable data; selecting top candidates...")
+    top_candidates = select_top_candidates(results, TOP_N)
+    print(f"Selected {len(top_candidates)} top candidates (target {TOP_N * 2}).")
+
     jst = timezone(timedelta(hours=9))
     payload = {
         "updated_at": datetime.now(jst).strftime("%Y-%m-%d %H:%M:%S %Z"),
-        "count": len(results),
+        "count": len(top_candidates),
+        "scanned_count": len(results),
         "forward_days": FORWARD_DAYS,
-        "stocks": results,
+        "stocks": top_candidates,
     }
 
     OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -425,7 +515,7 @@ def main() -> None:
         json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
         encoding="utf-8",
     )
-    print(f"Saved {len(results)} stocks -> {OUTPUT_PATH}")
+    print(f"Saved {len(top_candidates)} stocks -> {OUTPUT_PATH}")
 
 
 if __name__ == "__main__":

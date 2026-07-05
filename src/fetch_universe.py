@@ -29,6 +29,12 @@ JPX_LISTED_ISSUES_URL = "https://www.jpx.co.jp/markets/statistics-equities/misc/
 UNIVERSE_MAX_AGE_DAYS = 7
 MIN_EXPECTED_PRIME_COUNT = 500  # 東証プライムは通常1,000銘柄超のため、これを下回ったらパース失敗とみなす
 
+# universe_prime.json のスキーマを変更した際はこの値を上げる。
+# キャッシュファイルの schema_version が一致しない場合は、age に関わらず
+# 強制的に再取得する（例: セクター列を後から追加した際、日数キャッシュだけでは
+# 古いスキーマのファイルがそのまま使われ続けてしまう不具合を防ぐため）。
+SCHEMA_VERSION = 2
+
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "universe_prime.json"
 
 
@@ -37,6 +43,8 @@ def is_cache_fresh() -> bool:
         return False
     try:
         cached = json.loads(OUTPUT_PATH.read_text(encoding="utf-8"))
+        if cached.get("schema_version") != SCHEMA_VERSION:
+            return False
         fetched_at = datetime.fromisoformat(cached["fetched_at"])
     except Exception:
         return False
@@ -101,6 +109,7 @@ def main() -> None:
         sys.exit(1)
 
     payload = {
+        "schema_version": SCHEMA_VERSION,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
         "count": len(universe),
         "source": JPX_LISTED_ISSUES_URL,
