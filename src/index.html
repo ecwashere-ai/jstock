@@ -10,9 +10,7 @@
     theme: {
       extend: {
         colors: {
-          navy:     { 950: '#080d1a', 900: '#0b1226', 800: '#111a35', 700: '#1a2547' },
-          charcoal: { 900: '#12151c', 800: '#1a1e28', 700: '#232836' },
-          accent:   { DEFAULT: '#c9a962', dim: '#8a7440' },
+          accent: { DEFAULT: '#4f46e5', dim: '#6366f1' },
         },
         fontFamily: {
           mono: ['"SF Mono"', 'Menlo', 'Consolas', 'monospace'],
@@ -22,60 +20,68 @@
   };
 </script>
 <style>
-  body { background: linear-gradient(160deg, #080d1a 0%, #0b1226 55%, #12151c 100%); }
+  body { background: #f8fafc; }
   ::-webkit-scrollbar { width: 8px; height: 8px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #1a2547; border-radius: 4px; }
-  .glass { background: rgba(17, 26, 53, 0.55); backdrop-filter: blur(12px); border: 1px solid rgba(201, 169, 98, 0.12); }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+  .card { background: #ffffff; border: 1px solid #e2e8f0; box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04); }
   details > summary { list-style: none; cursor: pointer; }
   details > summary::-webkit-details-marker { display: none; }
   .detail-arrow { transition: transform 0.15s ease; }
   details[open] .detail-arrow { transform: rotate(180deg); }
+  .spark-link { display: block; }
 </style>
 </head>
-<body class="min-h-screen text-slate-200 antialiased">
+<body class="min-h-screen text-slate-800 antialiased">
 
 <div class="max-w-2xl mx-auto px-3 py-5 sm:px-4">
 
   <!-- ヘッダー -->
   <header class="mb-4">
-    <h1 class="text-xl sm:text-2xl font-semibold tracking-wide text-slate-100">
+    <h1 class="text-xl sm:text-2xl font-semibold tracking-wide text-slate-900">
       JP Stock <span class="text-accent">Screener</span>
     </h1>
     <div class="flex items-center justify-between mt-1">
-      <p class="text-xs text-slate-400">本日の注目銘柄（個人利用・情報提供のみ）</p>
+      <p class="text-xs text-slate-500">本日の注目銘柄（個人利用・情報提供のみ）</p>
       <p id="updated-at" class="font-mono text-xs text-accent shrink-0 ml-2">—</p>
     </div>
   </header>
 
+  <!-- 市場全体の地合い -->
+  <div id="market-banner" class="hidden card rounded-xl px-4 py-3 mb-3 text-sm">
+    <span class="text-slate-500">市場全体: </span>
+    <span id="market-reason" class="font-medium text-slate-800">—</span>
+  </div>
+
   <!-- サマリー -->
-  <div class="glass rounded-xl px-4 py-3 mb-4 flex items-center justify-between text-sm">
-    <span class="text-slate-400">
+  <div class="card rounded-xl px-4 py-3 mb-4 flex items-center justify-between text-sm">
+    <span class="text-slate-500">
       表示中 <span id="match-count" class="text-accent font-mono font-semibold">0</span> 銘柄
-      <span class="text-slate-600">（全 <span id="scanned-count" class="font-mono">0</span> 銘柄を走査）</span>
+      <span class="text-slate-400">（全 <span id="scanned-count" class="font-mono">0</span> 銘柄を走査）</span>
     </span>
   </div>
 
   <!-- 絞り込みタブ -->
   <div id="filter-tabs" class="grid grid-cols-3 gap-2 mb-4">
-    <button data-filter="all" class="filter-tab py-2.5 rounded-lg text-sm font-medium border border-navy-700 text-slate-300 transition">すべて</button>
-    <button data-filter="buy" class="filter-tab py-2.5 rounded-lg text-sm font-medium border border-navy-700 text-slate-300 transition">買い</button>
-    <button data-filter="sell" class="filter-tab py-2.5 rounded-lg text-sm font-medium border border-navy-700 text-slate-300 transition">売り</button>
+    <button data-filter="all" class="filter-tab py-2.5 rounded-lg text-sm font-medium border border-slate-200 bg-slate-100 text-slate-600 transition">すべて</button>
+    <button data-filter="buy" class="filter-tab py-2.5 rounded-lg text-sm font-medium border border-slate-200 bg-slate-100 text-slate-600 transition">買い</button>
+    <button data-filter="sell" class="filter-tab py-2.5 rounded-lg text-sm font-medium border border-slate-200 bg-slate-100 text-slate-600 transition">売り</button>
   </div>
 
   <!-- カード一覧 -->
   <div id="card-list" class="space-y-3"></div>
 
-  <p id="empty-message" class="hidden px-5 py-10 text-center text-slate-500 text-sm">条件に合致する銘柄がありません。</p>
-  <p id="error-message" class="hidden px-5 py-10 text-center text-red-400/80 text-sm"></p>
+  <p id="empty-message" class="hidden px-5 py-10 text-center text-slate-400 text-sm">条件に合致する銘柄がありません。</p>
+  <p id="error-message" class="hidden px-5 py-10 text-center text-red-500 text-sm"></p>
 
-  <p class="text-xs text-slate-600 mt-6 leading-relaxed">
+  <p class="text-xs text-slate-400 mt-6 leading-relaxed">
     ※ 本ページの「買い」「売り」表示は、RSI・MACD・移動平均トレンド・ボリンジャーバンド・出来高・ストキャスティクスの
-    6指標を機械的に合成した総合スコアと、同一銘柄の過去約2年間の統計的傾向にもとづく個人的な情報整理です。
-    投資助言業の登録を受けた者による助言ではなく、特定の金融商品の売買を勧誘・推奨するものではありません。
-    将来の値動きを保証・予測するものでもありません。表示件数は本日の全東証プライム銘柄走査の中から、
-    スコアが強い順に買い・売りそれぞれ上位10銘柄（最大20銘柄）に絞ったものです。投資に関する最終判断は
-    ご自身の責任で行ってください。データは Yahoo Finance 由来で遅延を含みます。個人利用限定。
+    6指標に加え、日経平均の市場全体の地合いと同一セクター銘柄の平均動向をあわせて機械的に合成した総合スコアにもとづく
+    個人的な情報整理です。投資助言業の登録を受けた者による助言ではなく、特定の金融商品の売買を勧誘・推奨するもの
+    ではありません。「目標株価」は同一銘柄の過去約2年間で類似のテクニカル状態が発生した際の平均変動率から算出した
+    参考値であり、将来の値動きを保証・予測するものではありません。表示件数は本日の全東証プライム銘柄走査の中から、
+    スコアが強い順に買い・売りそれぞれ上位20銘柄（最大40銘柄）に絞ったものです。投資に関する最終判断はご自身の
+    責任で行ってください。データは Yahoo Finance 由来で遅延を含みます。個人利用限定。
   </p>
 </div>
 
@@ -87,12 +93,14 @@
   let allStocks = [];
   let currentFilter = 'all';
 
-  const cardList      = document.getElementById('card-list');
-  const matchCount    = document.getElementById('match-count');
-  const scannedCount  = document.getElementById('scanned-count');
-  const updatedAt     = document.getElementById('updated-at');
-  const emptyMessage  = document.getElementById('empty-message');
-  const errorMessage  = document.getElementById('error-message');
+  const cardList       = document.getElementById('card-list');
+  const matchCount     = document.getElementById('match-count');
+  const scannedCount   = document.getElementById('scanned-count');
+  const updatedAt      = document.getElementById('updated-at');
+  const emptyMessage   = document.getElementById('empty-message');
+  const errorMessage   = document.getElementById('error-message');
+  const marketBanner   = document.getElementById('market-banner');
+  const marketReasonEl = document.getElementById('market-reason');
 
   const fmtNumber = (v, digits = 2) =>
     (v === null || v === undefined) ? '—'
@@ -100,6 +108,27 @@
 
   const escapeHtml = (s) => String(s).replace(/[&<>"']/g,
     (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+  function buildSparkline(spark, isUp) {
+    const points = (spark || []).filter((v) => v !== null && v !== undefined);
+    if (points.length < 2) {
+      return '<div class="w-20 h-8 flex items-center justify-center text-[10px] text-slate-300">データなし</div>';
+    }
+    const w = 84, h = 32, pad = 2;
+    const min = Math.min(...points), max = Math.max(...points);
+    const range = (max - min) || 1;
+    const step = (w - pad * 2) / (points.length - 1);
+    const coords = points.map((v, i) => {
+      const x = pad + i * step;
+      const y = pad + (1 - (v - min) / range) * (h - pad * 2);
+      return `${x.toFixed(1)},${y.toFixed(1)}`;
+    }).join(' ');
+    const stroke = isUp ? '#059669' : '#dc2626';
+    return `
+      <svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" class="overflow-visible">
+        <polyline points="${coords}" fill="none" stroke="${stroke}" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>`;
+  }
 
   function applyFilter() {
     const filtered = allStocks.filter((s) => {
@@ -117,63 +146,78 @@
     cardList.innerHTML = stocks.map((s) => {
       const isBuy = s.call === '買い';
       const callClass = isBuy
-        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40'
-        : 'bg-red-500/15 text-red-400 border-red-500/40';
+        ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+        : 'bg-red-50 text-red-700 border-red-300';
       const callArrow = isBuy ? '▲' : '▼';
 
       const chg = s.change_pct;
-      const chgClass = chg === null ? 'text-slate-500' : chg > 0 ? 'text-emerald-400' : chg < 0 ? 'text-red-400' : 'text-slate-400';
+      const chgClass = chg === null ? 'text-slate-400' : chg > 0 ? 'text-emerald-600' : chg < 0 ? 'text-red-600' : 'text-slate-500';
       const chgText = chg === null ? '—' : `${chg > 0 ? '+' : ''}${fmtNumber(chg)}%`;
+
+      const tvSymbol = encodeURIComponent('TSE:' + s.code);
+      const sparkHtml = buildSparkline(s.spark, isBuy);
 
       const prob = s.up_probability;
       const probText = prob === null
         ? `参考不可（n=${s.up_probability_samples ?? 0}）`
         : `${fmtNumber(prob, 1)}%（n=${s.up_probability_samples}, ${s.forward_days}営業日後）`;
 
+      const targetHtml = s.target_price !== null && s.target_price !== undefined
+        ? `<div class="mt-2 text-xs text-slate-500">
+             目標株価（参考・${s.forward_days}営業日後）
+             <span class="font-mono text-slate-800 font-semibold">¥${fmtNumber(s.target_price, 1)}</span>
+             <span class="${s.expected_return_pct >= 0 ? 'text-emerald-600' : 'text-red-600'}">(${s.expected_return_pct > 0 ? '+' : ''}${fmtNumber(s.expected_return_pct, 1)}%)</span>
+           </div>`
+        : `<div class="mt-2 text-xs text-slate-400">目標株価: 参考不可（サンプル不足）</div>`;
+
       const reasons = (s.reasons || []);
       const reasonsHtml = reasons.length
-        ? `<ul class="mt-2 space-y-1">${reasons.map((r) => `<li class="flex gap-1.5 text-xs text-slate-400"><span class="text-accent">・</span>${escapeHtml(r)}</li>`).join('')}</ul>`
-        : `<p class="mt-2 text-xs text-slate-500">特筆すべき突出した指標はありません。</p>`;
-
-      const tvSymbol = encodeURIComponent('TSE:' + s.code);
+        ? `<ul class="mt-2 space-y-1">${reasons.map((r) => `<li class="flex gap-1.5 text-xs text-slate-500"><span class="text-accent">・</span>${escapeHtml(r)}</li>`).join('')}</ul>`
+        : `<p class="mt-2 text-xs text-slate-400">特筆すべき突出した指標はありません。</p>`;
 
       return `
-        <div class="glass rounded-xl p-4">
+        <div class="card rounded-xl p-4">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0">
               <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-mono text-xs text-slate-500">${escapeHtml(s.code)}</span>
-                <span class="text-xs px-2 py-0.5 rounded-full bg-navy-800 text-slate-400 border border-navy-700">${escapeHtml(s.sector || '—')}</span>
+                <span class="font-mono text-xs text-slate-400">${escapeHtml(s.code)}</span>
+                <span class="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 border border-slate-200">${escapeHtml(s.sector || '—')}</span>
               </div>
-              <p class="text-base font-semibold text-slate-100 mt-1 truncate">${escapeHtml(s.name)}</p>
+              <p class="text-base font-semibold text-slate-900 mt-1 truncate">${escapeHtml(s.name)}</p>
             </div>
             <span class="shrink-0 inline-flex items-center gap-1 px-3 py-2 rounded-lg text-base font-bold border ${callClass}">
               ${callArrow} ${escapeHtml(s.call)}
             </span>
           </div>
 
-          <div class="flex items-baseline gap-3 mt-3">
-            <span class="font-mono text-lg text-slate-100">${fmtNumber(s.price)}</span>
-            <span class="font-mono text-sm ${chgClass}">${chgText}</span>
+          <div class="flex items-center justify-between mt-3">
+            <div class="flex items-baseline gap-3">
+              <span class="font-mono text-lg text-slate-900">${fmtNumber(s.price)}</span>
+              <span class="font-mono text-sm ${chgClass}">${chgText}</span>
+            </div>
+            <a class="spark-link" href="https://www.tradingview.com/chart/?symbol=${tvSymbol}" target="_blank" rel="noopener noreferrer" title="TradingViewでチャートを見る">
+              ${sparkHtml}
+            </a>
           </div>
 
+          ${targetHtml}
           ${reasonsHtml}
 
-          <details class="mt-3 border-t border-navy-700/60 pt-2">
-            <summary class="flex items-center justify-between text-xs text-slate-500 hover:text-accent transition">
+          <details class="mt-3 border-t border-slate-100 pt-2">
+            <summary class="flex items-center justify-between text-xs text-slate-400 hover:text-accent transition">
               <span>詳細データを見る</span>
               <svg class="detail-arrow w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
               </svg>
             </summary>
             <div class="mt-2 grid grid-cols-2 gap-2 text-xs">
-              <div class="text-slate-500">RSI (14日) <span class="float-right font-mono text-slate-300">${s.rsi === null ? '—' : fmtNumber(s.rsi, 1)}</span></div>
-              <div class="text-slate-500">25日乖離率 <span class="float-right font-mono text-slate-300">${s.ma25_dev_pct === null ? '—' : fmtNumber(s.ma25_dev_pct) + '%'}</span></div>
-              <div class="text-slate-500">総合スコア <span class="float-right font-mono text-slate-300">${s.composite_score === null ? '—' : (s.composite_score > 0 ? '+' : '') + s.composite_score}</span></div>
-              <div class="text-slate-500">統計的上昇確率 <span class="float-right font-mono text-slate-300">${probText}</span></div>
+              <div class="text-slate-400">RSI (14日) <span class="float-right font-mono text-slate-700">${s.rsi === null ? '—' : fmtNumber(s.rsi, 1)}</span></div>
+              <div class="text-slate-400">25日乖離率 <span class="float-right font-mono text-slate-700">${s.ma25_dev_pct === null ? '—' : fmtNumber(s.ma25_dev_pct) + '%'}</span></div>
+              <div class="text-slate-400">総合スコア <span class="float-right font-mono text-slate-700">${s.composite_score === null ? '—' : (s.composite_score > 0 ? '+' : '') + s.composite_score}</span></div>
+              <div class="text-slate-400">統計的上昇確率 <span class="float-right font-mono text-slate-700">${probText}</span></div>
             </div>
             <a href="https://www.tradingview.com/chart/?symbol=${tvSymbol}" target="_blank" rel="noopener noreferrer"
-               class="mt-3 flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-xs border border-navy-700 text-slate-400 hover:text-accent hover:border-accent/50 transition">
+               class="mt-3 flex items-center justify-center gap-1.5 w-full py-2 rounded-lg text-xs border border-slate-200 text-slate-500 hover:text-accent hover:border-accent/50 transition">
               TradingViewでチャートを見る
               <svg class="w-3 h-3" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M13.5 6H18v4.5M18 6l-7.5 7.5M18 13.5V18H6V6h4.5"/>
@@ -188,10 +232,11 @@
     currentFilter = filter;
     document.querySelectorAll('.filter-tab').forEach((btn) => {
       const active = btn.dataset.filter === filter;
-      btn.classList.toggle('bg-accent/15', active);
+      btn.classList.toggle('bg-accent/10', active);
       btn.classList.toggle('text-accent', active);
       btn.classList.toggle('border-accent/50', active);
-      btn.classList.toggle('text-slate-300', !active);
+      btn.classList.toggle('bg-slate-100', !active);
+      btn.classList.toggle('text-slate-600', !active);
     });
     applyFilter();
   }
@@ -204,6 +249,10 @@
       allStocks = data.stocks || [];
       scannedCount.textContent = data.scanned_count ?? allStocks.length;
       updatedAt.textContent = data.updated_at || '—';
+      if (data.market_reason) {
+        marketReasonEl.textContent = data.market_reason;
+        marketBanner.classList.remove('hidden');
+      }
       applyFilter();
     } catch (err) {
       errorMessage.textContent = `データの読み込みに失敗しました (${err.message})。GitHub Actions の初回実行後に data/stocks.json が生成されます。`;

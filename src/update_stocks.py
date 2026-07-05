@@ -22,17 +22,29 @@ yfinance で過去約2年分の株価を取得し、RSI・MACD・移動平均ト
 
 最終的に data/stocks.json へ保存するのは、総合スコアが最も強い
 「買い」候補 TOP_N 銘柄と「売り」候補 TOP_N 銘柄（合計最大 TOP_N*2 銘柄、
-既定20銘柄）のみに絞り込む。スマートフォンでの一覧性と読み込み速度を
+既定40銘柄）のみに絞り込む。スマートフォンでの一覧性と読み込み速度を
 優先するための設計。
 
-※ 統計的上昇確率・総合スコアはあくまで過去の値動きの頻度を機械的に
-   集計した参考値であり、将来の値動きを保証・予測するものではない。
-   個人の情報整理を目的とした参考情報であり、投資助言ではない。
+個別銘柄のテクニカル指標に加えて、以下も総合スコアに反映する。
+- 市場全体: 日経平均(^N225)自身のRSI・MACD・移動平均トレンド・
+  ボリンジャーバンド・ストキャスティクスから市場全体の地合いを判定し、
+  全銘柄に共通のボーナス/ペナルティとして加算する。
+- セクター動向: 本日スキャンした同一セクター銘柄の平均スコアを算出し、
+  セクター全体が堅調/軟調であれば当該銘柄のスコアに反映する。
+
+また、同一銘柄の過去統計から算出した「目標株価」（参考値）と、
+直近の値動きを示す簡易チャート用の株価系列（spark）も出力する。
+
+※ 統計的上昇確率・総合スコア・目標株価はあくまで過去の値動きの頻度や
+   平均変動幅を機械的に集計した参考値であり、将来の値動きを保証・予測
+   するものではない。個人の情報整理を目的とした参考情報であり、
+   投資助言業の登録を受けた者による助言ではない。
 """
 
 import json
 import math
 import time
+from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
@@ -122,7 +134,16 @@ CHUNK_SIZE = 150
 CHUNK_DELAY_SEC = 2
 
 # 最終出力に残す「買い」候補・「売り」候補それぞれの件数（合計最大 TOP_N*2 銘柄）
-TOP_N = 10
+TOP_N = 20
+
+# 市場全体の地合い判定に使う指数（日経平均株価）
+MARKET_INDEX_TICKER = "^N225"
+
+# セクター平均スコアがこの値以上/以下の場合にセクター全体を強気/弱気とみなす
+SECTOR_VOTE_THRESHOLD = 1.0
+
+# カード内の簡易チャート（スパークライン）に使う直近営業日数
+SPARKLINE_DAYS = 30
 
 OUTPUT_PATH = Path(__file__).resolve().parent.parent / "data" / "stocks.json"
 
@@ -318,28 +339,31 @@ def compute_indicators(history: pd.DataFrame) -> pd.DataFrame:
 
     df["composite_score"] = vote_rsi + vote_macd + vote_ma + vote_bb + vote_volume + vote_stoch
     df["forward_up"] = close.shift(-FORWARD_DAYS) > close
+    df["forward_return_pct"] = (close.shift(-FORWARD_DAYS) - close) / close * 100
     return df
 
 
 def backtest_up_probability(df: pd.DataFrame):
     """今日の総合スコアと同じバケットが過去何回発生し、その後 FORWARD_DAYS 営業日後に
-    上昇していた割合（%）を返す。サンプル不足の場合は (None, sample_size) を返す。
+    上昇していた割合（%）と平均変動率（目標株価の算出に使う）を返す。
+    サンプル不足の場合は up_probability / expected_return_pct に None を返す。
     """
     today_score = df["composite_score"].iloc[-1]
     today_bucket = bucket_from_score(today_score)
     if today_bucket is None:
-        return None, 0, today_score, None
+        return None, None, 0, today_score, None
 
-    hist = df.iloc[:-1].dropna(subset=["composite_score", "forward_up"])
+    hist = df.iloc[:-1].dropna(subset=["composite_score", "forward_up", "forward_return_pct"])
     hist_bucket = hist["composite_score"].apply(bucket_from_score)
-    matched = hist.loc[hist_bucket == today_bucket, "forward_up"]
+    matched = hist.loc[hist_bucket == today_bucket]
 
     sample_size = int(matched.shape[0])
     if sample_size < MIN_BACKTEST_SAMPLES:
-        return None, sample_size, today_score, today_bucket
+        return None, None, sample_size, today_score, today_bucket
 
-    up_probability = float(matched.mean() * 100)
-    return up_probability, sample_size, today_score, today_bucket
+    up_probability = float(matched["forward_up"].mean() * 100)
+    expected_return_pct = float(matched["forward_return_pct"].mean())
+    return up_probability, expected_return_pct, sample_size, today_score, today_bucket
 
 
 def select_top_candidates(rows: list[dict], top_n: int = TOP_N) -> list[dict]:
@@ -363,6 +387,73 @@ def select_top_candidates(rows: list[dict], top_n: int = TOP_N) -> list[dict]:
         row["call"] = "売り"
 
     return bullish[:top_n] + bearish[:top_n]
+
+
+def compute_market_context(history: pd.DataFrame):
+    """市場全体（日経平均株価）の地合いを判定する。
+
+    個別銘柄と異なり指数は出来高データが信頼できない（0やNaNが多い）ため、
+    出来高急増の指標は使わず、RSI・MACD・移動平均トレンド・ボリンジャー
+    バンド・ストキャスティクスの5指標のみで -1(弱気)/0(中立)/+1(強気) の
+    市場ボーナスと、その理由テキストを返す。
+    """
+    close = history["Close"]
+    rsi = calc_rsi(close).iloc[-1]
+    _, _, macd_hist_series = calc_macd(close)
+    macd_last = macd_hist_series.iloc[-1]
+    ma_short = close.rolling(MA_SHORT).mean().iloc[-1]
+    ma_long = close.rolling(MA_LONG).mean().iloc[-1]
+    last_close = close.iloc[-1]
+    bb = calc_bollinger_percent_b(close).iloc[-1]
+    stoch = calc_stochastic_k(history).iloc[-1] if {"High", "Low"}.issubset(history.columns) else float("nan")
+
+    votes = []
+    if pd.notna(rsi):
+        votes.append(1 if rsi <= 30 else -1 if rsi >= 70 else 0)
+    if pd.notna(macd_last):
+        votes.append(1 if macd_last > 0 else -1 if macd_last < 0 else 0)
+    if pd.notna(ma_short) and pd.notna(ma_long):
+        if last_close > ma_short > ma_long:
+            votes.append(1)
+        elif last_close < ma_short < ma_long:
+            votes.append(-1)
+        else:
+            votes.append(0)
+    if pd.notna(bb):
+        votes.append(1 if bb < 0.2 else -1 if bb > 0.8 else 0)
+    if pd.notna(stoch):
+        votes.append(1 if stoch < 20 else -1 if stoch > 80 else 0)
+
+    if not votes:
+        return 0, "日経平均のデータ不足のため市場全体の判定なし"
+
+    total = sum(votes)
+    if total >= 2:
+        return 1, "日経平均は上昇トレンドで市場全体は追い風"
+    if total <= -2:
+        return -1, "日経平均は下落トレンドで市場全体は逆風"
+    return 0, "日経平均は方向感に乏しく市場全体は中立"
+
+
+def compute_sector_averages(rows: list[dict]) -> dict[str, float]:
+    """本日スキャンした銘柄を業種ごとにグルーピングし、平均の技術スコアを返す。"""
+    groups: dict[str, list[float]] = defaultdict(list)
+    for row in rows:
+        if row["composite_score"] is not None:
+            groups[row["sector"]].append(row["composite_score"])
+    return {sector: sum(scores) / len(scores) for sector, scores in groups.items()}
+
+
+def sector_vote_and_reason(sector: str, sector_averages: dict[str, float]):
+    """セクター平均スコアから -1/0/+1 のセクターボーナスと理由テキストを返す。"""
+    avg = sector_averages.get(sector)
+    if avg is None:
+        return 0, None
+    if avg >= SECTOR_VOTE_THRESHOLD:
+        return 1, f"{sector}セクター全体が本日は堅調（平均スコア+{avg:.1f}）"
+    if avg <= -SECTOR_VOTE_THRESHOLD:
+        return -1, f"{sector}セクター全体が本日は軟調（平均スコア{avg:.1f}）"
+    return 0, None
 
 
 def load_stock_universe() -> list[dict]:
@@ -453,10 +544,12 @@ def build_stock_row(entry: dict, history: pd.DataFrame | None) -> dict | None:
     else:
         ma_dev_pct = float("nan")
 
-    up_probability, sample_size, composite_score, bucket = backtest_up_probability(df)
+    up_probability, expected_return_pct, sample_size, composite_score, bucket = backtest_up_probability(df)
     composite_score_int = None if bucket is None else int(composite_score)
     composite_label = SCORE_LABELS[bucket] if bucket is not None else "データ不足"
     reasons = build_reasons(df.iloc[-1])
+    target_price = round_or_none(price * (1 + expected_return_pct / 100), 1) if expected_return_pct is not None else None
+    spark = [round_or_none(v, 1) for v in close.tail(SPARKLINE_DAYS).tolist()]
 
     return {
         "code": code.replace(".T", ""),
@@ -479,6 +572,9 @@ def build_stock_row(entry: dict, history: pd.DataFrame | None) -> dict | None:
         "up_probability_samples": sample_size,
         "forward_days": FORWARD_DAYS,
         "reasons": reasons,
+        "target_price": target_price,
+        "expected_return_pct": round_or_none(expected_return_pct, 1),
+        "spark": spark,
     }
 
 
@@ -496,8 +592,30 @@ def main() -> None:
             results.append(row)
         else:
             print(f"[WARN] {entry['code']}: no usable data, skipped")
+    print(f"Scanned {len(results)} tickers with usable data.")
 
-    print(f"Scanned {len(results)} tickers with usable data; selecting top candidates...")
+    print(f"Fetching market index ({MARKET_INDEX_TICKER}) for market-wide context...")
+    market_history = download_history_batch([MARKET_INDEX_TICKER]).get(MARKET_INDEX_TICKER)
+    if market_history is not None and len(market_history) >= MA_LONG:
+        market_vote, market_reason = compute_market_context(market_history)
+    else:
+        market_vote, market_reason = 0, "日経平均のデータ取得に失敗したため市場全体の判定なし"
+    print(f"Market-wide vote: {market_vote} ({market_reason})")
+
+    # セクター全体の地合い（本日スキャンした同一セクター銘柄の平均スコア）を
+    # 個別銘柄の総合スコアに反映する。
+    sector_averages = compute_sector_averages(results)
+    for row in results:
+        if row["composite_score"] is None:
+            continue
+        sector_vote, sector_reason = sector_vote_and_reason(row["sector"], sector_averages)
+        row["composite_score"] = row["composite_score"] + market_vote + sector_vote
+        if market_vote != 0:
+            row["reasons"].append(market_reason)
+        if sector_reason:
+            row["reasons"].append(sector_reason)
+
+    print("Selecting top candidates...")
     top_candidates = select_top_candidates(results, TOP_N)
     print(f"Selected {len(top_candidates)} top candidates (target {TOP_N * 2}).")
 
@@ -506,6 +624,8 @@ def main() -> None:
         "updated_at": datetime.now(jst).strftime("%Y-%m-%d %H:%M:%S %Z"),
         "count": len(top_candidates),
         "scanned_count": len(results),
+        "market_vote": market_vote,
+        "market_reason": market_reason,
         "forward_days": FORWARD_DAYS,
         "stocks": top_candidates,
     }
