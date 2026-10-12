@@ -1,5 +1,5 @@
 {
-  "updated_at": "2026-10-09 18:31:55 UTC+09:00",
+  "updated_at": "2026-10-12 18:39:51 UTC+09:00",
   "count": 40,
   "scanned_count": 1555,
   "market_vote": 0,
@@ -264,7 +264,7 @@
       "rsi": 54.6,
       "ma25_dev_pct": 0.59,
       "signal": "シグナルなし",
-      "macd_hist": 2.47,
+      "macd_hist": 2.44,
       "bb_percent_b": 78.1,
       "volume_ratio": 1.6,
       "stoch_k": 64.0,
@@ -281,8 +281,8 @@
       "target_price": 2307.4,
       "expected_return_pct": -0.3,
       "spark": [
-        2350.0,
-        2354.0,
+        2349.0,
+        2353.0,
         2307.0,
         2295.0,
         2340.0,
